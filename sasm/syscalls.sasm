@@ -1,0 +1,6 @@
+(define SYS_OPENAT 56)
+(define SYS_CLOSE 57)
+(define SYS_WRITE 64)
+(define SYS_EXIT 93)
+(define SYS_BRK 214)
+(define SYS_MMAP 222)
