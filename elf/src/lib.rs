@@ -21,17 +21,22 @@ impl Elf {
     pub fn new(isa: ISA, mut program: Vec<u8>, mut data: Vec<Vec<u8>>, rewrites: HashMap<usize, usize>) -> Self {
         // TODO
         assert!(program.len() < 0x200000);
-        let data_offset = 64+56+56+program.len() as u64;
+        assert!(data.len() < 0x100000);
+        let program_offset = (mem::size_of::<Elf64Ehdr>() + (2 * mem::size_of::<Elf64Phdr>())) as u64;
+        // 8-byte align
+        for _ in 0..8 - (program.len() % 8) {
+            program.push(0);
+        }
+        let data_offset = program_offset + program.len() as u64;
 
         // Read memory positions of each data entry
         let mut data_position = Vec::new();
         let mut pos = DATA_LOCATION + data_offset;
-        //let mut pos = DATA_LOCATION;
         let mut data_len = 0;
         for id in &mut data {
+            // 8-byte align
             let align = (pos+id.len() as u64) % 8;
-            for _ in 0..align {
-                //println!("align");
+            for _ in 0..8-align {
                 id.push(0);
             }
             data_position.push(pos);
@@ -48,43 +53,41 @@ impl Elf {
                 let offset = data_position[i] as u32;
                 let lui = (&program[p..]).read_u32::<LittleEndian>().unwrap();
                 let addi = (&program[p+4..]).read_u32::<LittleEndian>().unwrap();
-                let lui = (offset & 0xff_ff_f0_00) | lui;
-                let addi = (offset & 0xf_ff) << 20 | addi;
+                let mut offset_u = offset & 0xff_ff_f0_00;
+                let offset_l = offset & 0xf_ff;
+                if offset_l & 0x9_00 != 0 {
+                    offset_u += 0x10_00;
+                }
+                let lui = offset_u | lui;
+                let addi = offset_l << 20 | addi;
                 (&mut program[p..]).write_u32::<LittleEndian>(lui).unwrap();
                 (&mut program[p+4..]).write_u32::<LittleEndian>(addi).unwrap();
             }
         }
 
         Elf {
-            e_hdr: Elf64Ehdr::new(isa),
-            //p_hdr: vec![Elf64Phdr::text(0, program.len() as u64),
-            //            Elf64Phdr::data(0, data_len as u64)],
+            e_hdr: Elf64Ehdr::new(isa, 2),
             p_hdr: vec![Elf64Phdr::text(0, data_offset),
-                        //Elf64Phdr::data(data_offset, data_len as u64)],
-                        Elf64Phdr::data(0, data_len as u64)],
+                        Elf64Phdr::data(data_offset, data_len as u64)],
+            program: program,
+            data: data,
             shstrtab: Vec::new(),
             s_hdr: Vec::new(),
-            data: data,
-            program: program,
         }
     }
 
     pub fn new_debug(isa: ISA, program: Vec<u8>, data: Vec<Vec<u8>>, rewrites: HashMap<usize, usize>) -> Self {
+        let mut elf = Self::new(isa, program, data, rewrites);
+
         let shstrtab = b"\0.text\0.data\0.shstrtab\0";
-        let data_offset = 64+56+56+program.len() as u64;
-        let mut data_len = 0;
-        for id in &data {
-            data_len += id.len();
-        }
-        let shstrtab_offset = data_offset + data_len as u64;
+        let shstrtab_offset = elf.p_hdr[1].p_offset + elf.p_hdr[1].p_filesz;
         let sh_off = shstrtab_offset + shstrtab.len() as u64;
 
         let s_hdr = vec![Elf64Shdr::null(),
-                        Elf64Shdr::text(program.len() as u64),
-                        Elf64Shdr::data(data_len as u64, data_offset),
+                        Elf64Shdr::text(elf.program.len() as u64, elf.e_hdr.e_entry),
+                        Elf64Shdr::data(elf.p_hdr[1].p_filesz, elf.p_hdr[1].p_offset),
                         Elf64Shdr::shstrtab(shstrtab.len() as u64, shstrtab_offset)];
 
-        let mut elf = Self::new(isa, program, data, rewrites);
         elf.e_hdr.e_shoff = sh_off;
         elf.e_hdr.e_shnum = 4;
         elf.e_hdr.e_shstrndx = 3;
@@ -148,8 +151,7 @@ struct Elf64Ehdr {
 }
 
 impl Elf64Ehdr {
-    //fn new(isa: ISA) -> Self {
-    fn new(isa: ISA) -> Self {
+    fn new(isa: ISA, program_headers: u16) -> Self {
         Elf64Ehdr {
             e_ident: [0x7f, b'E', b'L', b'F', // magic number
                       2, // 1 for 32 bit, 2 for 64bit
@@ -163,8 +165,8 @@ impl Elf64Ehdr {
             e_machine: isa as u16,
             // set to 1 for the original version of elf
             e_version: 1,
-            // memory address of the entry point. right after elf header + program header
-            e_entry: ENTRY_LOCATION + 0xb0,
+            // memory address of the entry point. right after elf header + program headers
+            e_entry: ENTRY_LOCATION + mem::size_of::<Elf64Ehdr>() as u64 + (program_headers as usize * mem::size_of::<Elf64Phdr>()) as u64,
             // phoff: points to start of the program header table
             e_phoff: mem::size_of::<Elf64Ehdr>() as u64,
             // shoff: points to start of the section header table
@@ -176,7 +178,7 @@ impl Elf64Ehdr {
             // size of a program header table entry
             e_phentsize: mem::size_of::<Elf64Phdr>() as u16,
             // number of entries in the program header table
-            e_phnum: 2,
+            e_phnum: program_headers,
             // size of a section header table entry
             e_shentsize: mem::size_of::<Elf64Shdr>() as u16,
             // number of entries in the section header table
@@ -187,7 +189,7 @@ impl Elf64Ehdr {
     }
 
     fn to_vec(self) -> Vec<u8> {
-        let mut v = Vec::new();
+        let mut v = Vec::with_capacity(mem::size_of::<Elf64Ehdr>());
         v.extend_from_slice(&self.e_ident);
         v.write_u16::<LittleEndian>(self.e_type).unwrap();
         v.write_u16::<LittleEndian>(self.e_machine).unwrap();
@@ -245,8 +247,8 @@ impl Elf64Phdr {
             // offset from beginning of segments
             p_offset: offset,
             // Initial virtual memory address to load this segment to
-            p_vaddr: DATA_LOCATION,
-            p_paddr: DATA_LOCATION,
+            p_vaddr: DATA_LOCATION+offset,
+            p_paddr: DATA_LOCATION+offset,
             p_filesz: size,
             p_memsz: size,
             p_align: 4096,
@@ -254,7 +256,7 @@ impl Elf64Phdr {
     }
 
     fn to_vec(self) -> Vec<u8> {
-        let mut v = Vec::new();
+        let mut v = Vec::with_capacity(mem::size_of::<Elf64Phdr>());
         v.write_u32::<LittleEndian>(self.p_type).unwrap();
         v.write_u32::<LittleEndian>(self.p_flags).unwrap();
         v.write_u64::<LittleEndian>(self.p_offset).unwrap();
@@ -297,17 +299,17 @@ impl Elf64Shdr {
         }
     }
 
-    fn text(sh_size: u64) -> Self {
+    fn text(sh_size: u64, sh_offset: u64) -> Self {
         Elf64Shdr {
             sh_name: 0x01,
             sh_type: 1,
             sh_flags: 6,
-            sh_addr: ENTRY_LOCATION + 0xb0,
-            sh_offset: 0xb0,
+            sh_addr: sh_offset,
+            sh_offset: sh_offset - ENTRY_LOCATION,
             sh_size: sh_size,
             sh_link: 0,
             sh_info: 0,
-            sh_addralign: 0x10,
+            sh_addralign: 4,
             sh_entsize: 0,
         }
     }
@@ -322,7 +324,7 @@ impl Elf64Shdr {
             sh_size: sh_size,
             sh_link: 0,
             sh_info: 0,
-            sh_addralign: 4,
+            sh_addralign: 8,
             sh_entsize: 0,
         }
     }
@@ -343,7 +345,7 @@ impl Elf64Shdr {
     }
 
     fn to_vec(self) -> Vec<u8> {
-        let mut v = Vec::new();
+        let mut v = Vec::with_capacity(mem::size_of::<Elf64Shdr>());
         v.write_u32::<LittleEndian>(self.sh_name).unwrap();
         v.write_u32::<LittleEndian>(self.sh_type).unwrap();
         v.write_u64::<LittleEndian>(self.sh_flags).unwrap();
@@ -367,5 +369,16 @@ mod tests {
         assert_eq!(mem::size_of::<Elf64Ehdr>(), 64);
         assert_eq!(mem::size_of::<Elf64Phdr>(), 56);
         assert_eq!(mem::size_of::<Elf64Shdr>(), 64);
+    }
+
+    #[test]
+    fn to_bytes() {
+        let ehdr = Elf64Ehdr::new(ISA::Riscv, 2).to_vec();
+        let ehdr2 = Elf64Ehdr::new(ISA::Riscv, 2);
+        let ehdr_ptr: *const Elf64Ehdr = &ehdr2;
+        let ehdr_raw = unsafe { mem::transmute::<_, *const u8>(ehdr_ptr) };
+        let ehdr_slice = unsafe { std::slice::from_raw_parts(ehdr_raw, mem::size_of::<Elf64Ehdr>()) };
+        assert_eq!(ehdr_slice, &ehdr);
+
     }
 }

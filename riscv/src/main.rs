@@ -324,7 +324,8 @@ impl Asm {
                 let i = match tokens.next().unwrap() {
                     s @ Token::Symbol(_) => {
                         let s = s.as_str(input);
-                        *self.globals.get(s).unwrap()
+                        let s = self.globals.get(s).unwrap();
+                        self.data[*s].len()
                     },
                     s @ Token::String(_) => {
                         let s = s.as_str(input).as_bytes();
