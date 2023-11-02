@@ -22,15 +22,15 @@
 (define Token::String #'t')
 (define Token::Pound #'#')
 
-;(include! "sasm-strings.sasm")
+(include! "sasm-strings.sasm")
 (include! "syscalls.sasm")
 
 start
     ;; Init malloc
     (jal x1 malloc-init)
     ;;(include! "test-malloc.sasm")
-    ;;(jal x1 symbol-table-init)
-    (include! "test-symbol-table.sasm")
+    ;;(include! "test-symbol-table.sasm")
+    (jal x1 symbol-table-init)
 
     ;; Check that argc == 2
     (lw x10 x2)
