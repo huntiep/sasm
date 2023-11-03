@@ -1031,14 +1031,6 @@ assemble
 ;;   x13 - str2.len
 str-eq
     (bne x11 x13 str-eq-false)
-    ;; Ensure that (len x10) <= (len x12), if not swap them
-    (bge x13 x11 str-eq-loop)
-    (add x7 x0 x10)
-    (add x10 x0 x12)
-    (add x12 x0 x7)
-    (add x7 x0 x11)
-    (add x11 x0 x13)
-    (add x13 x0 x7)
     str-eq-loop
         (beq x11 x0 str-eq-true)
         (subi x11 x11 1)
@@ -1322,7 +1314,7 @@ elf
         (jal x0 elf-rewrites)
 
     elf-write-ehdr
-    (define elf-ehdr #(127 69 76 70 2 1 1 0 0 0 0 0 0 0 0 0 
+    (define elf-ehdr #(127 69 76 70 2 1 1 0 0 0 0 0 0 0 0 0
                        2 0 ;; e_type
                        243 0 ;; e_machine
                        1 0 0 0 ;; e_version
