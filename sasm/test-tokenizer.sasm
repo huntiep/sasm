@@ -5,25 +5,56 @@
 (add x21 x0 x11)
 
 ;; Allocate 64k
-(add x10 x0 x0)
-(addi x17 x0 214)
-(ecall)
-(add x22 x0 x10)
-(addi x11 x0 1)
+(addi x10 x0 1)
 (slli x11 x11 16)
-(add x10 x10 x11)
-(addi x17 x0 214)
-(ecall)
-(add x11 x22 x0)
-(add x12 x11 x0)
+(jal x1 malloc)
+(add x11 x0 x10)
+(add x12 x0 x10)
 
 test-tokenizer-loop
-    (beq x20 x21 test-tokenizer-loop-write)
-    (lw x6 x20)
-    (sb x10 x6)
-    (addi x20 x20 16)
+    (bge x20 x21 test-tokenizer-loop-write)
+    (lb x6 x20)
+    (sb x12 x6)
     (addi x12 x12 1)
+
+    (subi x7 x6 Token::Char)
+    (beq x7 x0 test-tokenizer-char)
+    (subi x7 x6 Token::Symbol)
+    (beq x7 x0 test-tokenizer-symbol)
+    (subi x7 x6 Token::Integer)
+    (beq x7 x0 test-tokenizer-integer)
+    (subi x7 x6 Token::String)
+    (beq x7 x0 test-tokenizer-string)
+
+    test-tokenizer-loop-continue
+    (addi x20 x20 16)
     (jal x0 test-tokenizer-loop)
+test-tokenizer-char
+    (lb x6 (+ x20 8))
+    (sb x12 x6)
+    (addi x12 x12 1)
+    (jal x0 test-tokenizer-loop-continue)
+test-tokenizer-symbol
+    (ld x6 (+ x20 8))
+    (sd x12 x6)
+    (addi x12 x12 8)
+    (jal x0 test-tokenizer-loop-continue)
+test-tokenizer-integer
+    (ld x6 (+ x20 8))
+    (sd x12 x6)
+    (addi x12 x12 8)
+    (jal x0 test-tokenizer-loop-continue)
+test-tokenizer-string
+    (ld x6 (+ x20 8))
+    (lw x7 (+ x20 4))
+    test-tokenizer-string-loop
+        (beq x7 x0 test-tokenizer-loop-continue)
+        (lb x28 x6)
+        (sb x12 x28)
+        (addi x6 x6 1)
+        (addi x12 x12 1)
+        (subi x7 x7 1)
+        (jal x0 test-tokenizer-string-loop)
 test-tokenizer-loop-write
    ;; write(fd, msg, len)
     (addi x10 x0 1)

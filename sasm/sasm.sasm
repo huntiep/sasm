@@ -154,30 +154,33 @@ start
 ;;  x21 - capacity: tokens.capacity : pointer to end of tokens capacity
 ;;  x30 - Current token type
 ;;  x31 - Start of current token
+;;
+;; Ret:
+;;  x10 - tokens: ArrayBuf<(Token, len, start)>
+;;  x11 - len: tokens.len
 tokenize
-    (define input x10)
-    (define input.len x11)
-    (define tokens x20)
-    (define tokens.capacity x21)
+    (subi x2 x2 32)
+    (sd (+ x2 8) x10)
+    (sd (+ x2 16) x11)
+    (sd (+ x2 24) x1)
 
-    (sd (- x2 8) x1)
-    (sd (- x2 16) input)
-    (sd (- x2 24) input.len)
-    (subi x2 x2 24)
+    ;; allocate tokens arraybuf
     (addi x10 x0 16)
     (jal x1 malloc)
-    (add tokens x0 x10)
-    (ld input.len x2)
-    (ld input (+ x2 8))
-    (addi x2 x2 8)
-    (sd x2 tokens)
-    (addi tokens.capacity tokens 16)
+    (add x20 x0 x10)
+
+    (ld x10 (+ x2 8))
+    (ld x11 (+ x2 16))
+
+    (addi x2 x2 16)
+    (sd x2 x20)
+    (addi x21 x20 16)
 
     tokenize-loop
-        (beq input input.len tokenize-after-loop)
-        (lb x28 input)
-        (add x31 input x0)
-        (addi input input 1)
+        (beq x10 x11 tokenize-after-loop)
+        (lb x28 x10)
+        (add x31 x10 x0)
+        (addi x10 x10 1)
 
         (subi x29 x28 #'(')
         (addi x30 x0 Token::LeftParen)
@@ -218,50 +221,57 @@ tokenize
         (jal x0 tokenize-identifier)
 
         tokenize-loop-push-token
-            (beq tokens tokens.capacity tokenize-loop-alloc)
+            (beq x20 x21 tokenize-loop-alloc)
             tokenize-loop-after-alloc
-            (sb tokens x30)
-            (sd (+ tokens 8) x31)
+            (sb x20 x30)
+            (sd (+ x20 8) x31)
             (sub x31 x10 x31)
-            (sw (+ tokens 4) x31)
-            (addi tokens tokens 16)
+            (sw (+ x20 4) x31)
+            (addi x20 x20 16)
             (jal x0 tokenize-loop)
 
             tokenize-loop-alloc
                 ;; Double tokens capacity
-                (sd (- x2 8) input)
-                (sd (- x2 16) input.len)
-                (sd (- x2 24) x30)
-                (sd (- x2 32) x31)
-                (ld x10 x2)
-                (sub x11 tokens.capacity x10)
-                (sd (- x2 40) x11)
                 (subi x2 x2 40)
+                (sd x2 x10)
+                (sd (+ x2 8) x11)
+                (sd (+ x2 16) x30)
+                (sd (+ x2 24) x31)
+
+                (ld x10 (+ x2 40))
+                (sub x11 x21 x10)
+                (sd (+ x2 32) x11)
                 (slli x11 x11 1)
+
                 (jal x1 realloc)
-                (ld x6 x2)
-                (add tokens.capacity x10 x6)
-                (add tokens x10 x6)
+                (sd (+ x2 40) x10)
+
+                (ld x6 (+ x2 32))
+                (add x20 x10 x6)
+                (slli x6 x6 1)
+                (add x21 x10 x6)
+
+                (ld x10 x2)
+                (ld x11 (+ x2 8))
+                (ld x30 (+ x2 16))
+                (ld x31 (+ x2 24))
                 (addi x2 x2 40)
-                (ld input (- x2 8))
-                (ld input.len (- x2 16))
-                (ld x30 (- x2 24))
-                (ld x31 (- x2 32))
+
                 (jal x0 tokenize-loop-after-alloc)
 
     tokenize-after-loop
         (ld x10 x2)
+        (add x11 x0 x20)
         (ld x1 (+ x2 8))
         (addi x2 x2 16)
-        (add x11 x0 tokens)
         (jalr x0 x1)
 
     tokenize-string
         (addi x30 x0 Token::String)
     tokenize-string-loop
-        (beq input input.len tokenize-string-error)
-        (lb x28 input)
-        (addi input input 1)
+        (beq x10 x11 tokenize-string-error)
+        (lb x28 x10)
+        (addi x10 x10 1)
 
         (subi x29 x28 #'\\')
         (beq x29 x0 tokenize-string-escape)
@@ -270,9 +280,9 @@ tokenize
     tokenize-string-done
         (jal x0 tokenize-loop-push-token)
     tokenize-string-escape
-        (beq input input.len tokenize-string-error)
-        (lb x28 input)
-        (addi input input 1)
+        (beq x10 x11 tokenize-string-error)
+        (lb x28 x10)
+        (addi x10 x10 1)
 
         (subi x29 x28 #'r')
         (beq x29 x0 tokenize-string-loop)
@@ -292,24 +302,24 @@ tokenize
         (ecall)
 
     tokenize-literal
-        (beq input input.len tokenize-literal-error)
-        (lb x28 (+ input 1))
+        (beq x10 x11 tokenize-literal-error)
+        (lb x28 x10)
         (addi x30 x0 Token::Pound)
         (subi x28 x28 #'\'')
         (bne x28 x0 tokenize-loop-push-token)
-        (addi input input 1)
+        (addi x10 x10 1)
 
-        (beq input input.len tokenize-literal-error)
-        (lb x31 input)
-        (addi input input 1)
+        (beq x10 x11 tokenize-literal-error)
+        (lb x31 x10)
+        (addi x10 x10 1)
         (subi x29 x31 #'\'')
         (beq x29 x0 tokenize-literal-error)
         (subi x29 x31 #'\\')
         (bne x29 x0 tokenize-literal-close)
 
-        (beq input input.len tokenize-literal-error)
-        (lb x28 input)
-        (addi input input 1)
+        (beq x10 x11 tokenize-literal-error)
+        (lb x28 x10)
+        (addi x10 x10 1)
         (addi x31 x0 #'\\')
         (beq x28 x31 tokenize-literal-close)
         (addi x31 x0 #'\'')
@@ -329,9 +339,9 @@ tokenize
 
         (jal x0 tokenize-literal-error)
     tokenize-literal-close
-        (beq input input.len tokenize-literal-error)
-        (lb x28 input)
-        (addi input input 1)
+        (beq x10 x11 tokenize-literal-error)
+        (lb x28 x10)
+        (addi x10 x10 1)
         (subi x28 x28 #'\'')
         (bne x28 x0 tokenize-literal-error)
         (addi x30 x0 Token::Char)
@@ -342,10 +352,10 @@ tokenize
         (ecall)
 
     tokenize-ambiguous
-        (beq input input.len distinguish-ambiguous)
+        (beq x10 x11 distinguish-ambiguous)
 
-        (lb x28 input)
-        (addi input input 1)
+        (lb x28 x10)
+        (addi x10 x10 1)
 
         ;; Still ambiguous
         (subi x29 x28 #'0')
@@ -381,7 +391,7 @@ tokenize
 
     ;; There is some other token that we need to account for after this, so we move our cursor back.
     distinguish-ambiguous-pair
-        (subi input input 1)
+        (subi x10 x10 1)
     distinguish-ambiguous
         (add x28 x0 x31)
     distinguish-ambiguous-intp
@@ -393,7 +403,7 @@ tokenize
         distinguish-ambiguous-intp-skip-sign
             (addi x28 x28 1)
             ;; Needed in case the ambiguous input is just a sign.
-            (beq x28 input distinguish-ambiguous-symbol)
+            (beq x28 x10 distinguish-ambiguous-symbol)
 
         distinguish-ambiguous-intp-loop
             (lb x6 x28)
@@ -401,53 +411,57 @@ tokenize
             (subi x6 x6 #'0')
             (addi x7 x0 11)
             (bgeu x29 x7 distinguish-ambiguous-symbol)
-            (bne x28 input distinguish-ambiguous-intp-loop)
+            (bne x28 x10 distinguish-ambiguous-intp-loop)
         distinguish-ambiguous-int
-            (add x6 x0 input)
-            (add x27 x0 x0)
-            (addi x29 x0 1)
+            (add x6 x0 x31)
+            (add x28 x0 x0)
+            (addi x29 x0 10)
             distinguish-ambiguous-int-convert
-                (lb x27 (- x6 1))
-                (subi x6 x6 1)
+                (lb x27 x6)
+                (addi x6 x6 1)
                 (subi x7 x27 #'+')
                 (beq x7 x0 distinguish-ambiguous-int-convert-after)
                 (subi x7 x27 #'-')
-                (beq x7 x0 distinguish-ambiguous-int-convert-after)
+                (beq x7 x0 distinguish-ambiguous-int-convert-negate)
+                (mul x28 x28 x29)
                 (subi x27 x27 #'0')
-                (mul x27 x27 x29)
                 (add x28 x28 x27)
-                (addi x27 x0 10)
-                (mul x29 x29 x27)
-                (bne x6 x31 distinguish-ambiguous-int-convert)
+                (bne x6 x10 distinguish-ambiguous-int-convert)
+                (jal x0 distinguish-ambiguous-int-convert-after)
+            distinguish-ambiguous-int-convert-negate
+                (sub x28 x0 x28)
             distinguish-ambiguous-int-convert-after
             (add x31 x0 x28)
             (addi x30 x0 Token::Integer)
             (jal x0 tokenize-loop-push-token)
         distinguish-ambiguous-symbol
-            (sd (- x2 8) input)
-            (sd (- x2 16) input.len)
-            (sd (- x2 24) tokens)
-            (sd (- x2 32) tokens.capacity)
             (subi x2 x2 32)
-            (add x11 x0 x10)
+            (sd x2 x10)
+            (sd (+ x2 8) x11)
+            (sd (+ x2 16) x20)
+            (sd (+ x2 24) x21)
+
+            (sub x11 x10 x31)
             (add x10 x0 x31)
             (jal x1 symbol-table::string->symbol)
             (add x31 x0 x10)
+
+            (ld x10 x2)
+            (ld x11 (+ x2 8))
+            (ld x20 (+ x2 16))
+            (ld x21 (+ x2 24))
             (addi x2 x2 32)
-            (ld input (- x2 8))
-            (ld input.len (- x2 16))
-            (ld tokens (- x2 24))
-            (ld tokens.capacity (- x2 32))
+
             (addi x30 x0 Token::Symbol)
             (jal x0 tokenize-loop-push-token)
 
     tokenize-identifier
         (addi x30 x0 Token::Symbol)
         tokenize-identifier-loop
-            (beq input input.len tokenize-loop-push-token)
+            (beq x10 x11 distinguish-ambiguous-symbol)
 
-            (lb x28 input)
-            (addi input input 1)
+            (lb x28 x10)
+            (addi x10 x10 1)
 
             ;; delimiters
             (subi x29 x28 #'\r')
@@ -471,30 +485,16 @@ tokenize
 
             (jal x0 tokenize-identifier-loop)
         tokenize-identifier-after-loop
-            (subi input input 1)
-            (sd (- x2 8) input)
-            (sd (- x2 16) input.len)
-            (sd (- x2 24) tokens)
-            (sd (- x2 32) tokens.capacity)
-            (subi x2 x2 32)
-            (add x11 x0 x10)
-            (add x10 x0 x31)
-            (jal x1 symbol-table::string->symbol)
-            (add x31 x0 x10)
-            (addi x2 x2 32)
-            (ld input (- x2 8))
-            (ld input.len (- x2 16))
-            (ld tokens (- x2 24))
-            (ld tokens.capacity (- x2 32))
-            (jal x0 tokenize-loop-push-token)
+            (subi x10 x10 1)
+            (jal x0 distinguish-ambiguous-symbol)
 
     tokenize-comment
     (addi x29 x0 #'\n')
     tokenize-comment-loop
-        (beq input input.len tokenize-after-loop)
+        (beq x10 x11 tokenize-after-loop)
 
-        (lb x28 input)
-        (addi input input 1)
+        (lb x28 x10)
+        (addi x10 x10 1)
         (beq x28 x29 tokenize-loop)
         (jal x0 tokenize-comment-loop)
 
