@@ -126,6 +126,7 @@ type Elf64Xword = u64;
 const EI_NIDENT: usize = 16; // Number of bytes in e_ident
 const ENTRY_LOCATION: u64 = 0x400000;
 const DATA_LOCATION: u64 = 0x600000;
+const RODATA_LOCATION: u64 = 0x700000;
 
 pub enum ISA {
     Amd64 = 0x3e,
@@ -238,6 +239,23 @@ impl Elf64Phdr {
         }
     }
 
+    fn rodata(offset: u64, size: u64) -> Self {
+        Elf64Phdr {
+            // 1 is PT_LOAD
+            p_type: 1,
+            // read and write permissions
+            p_flags: 4,
+            // offset from beginning of segments
+            p_offset: offset,
+            // Initial virtual memory address to load this segment to
+            p_vaddr: RODATA_LOCATION+offset,
+            p_paddr: RODATA_LOCATION+offset,
+            p_filesz: size,
+            p_memsz: size,
+            p_align: 4096,
+        }
+    }
+
     fn data(offset: u64, size: u64) -> Self {
         Elf64Phdr {
             // 1 is PT_LOAD
@@ -319,6 +337,21 @@ impl Elf64Shdr {
             sh_name: 0x07,
             sh_type: 1,
             sh_flags: 3,
+            sh_addr: DATA_LOCATION + sh_offset,
+            sh_offset: sh_offset,
+            sh_size: sh_size,
+            sh_link: 0,
+            sh_info: 0,
+            sh_addralign: 8,
+            sh_entsize: 0,
+        }
+    }
+
+    fn rodata(sh_size: u64, sh_offset: u64) -> Self {
+        Elf64Shdr {
+            sh_name: 0x07,
+            sh_type: 1,
+            sh_flags: 2,
             sh_addr: DATA_LOCATION + sh_offset,
             sh_offset: sh_offset,
             sh_size: sh_size,
