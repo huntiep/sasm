@@ -367,3 +367,26 @@ symbol-table::string->symbol
         (ld x1 (+ x2 16))
         (addi x2 x2 24)
         (jal x0 symbol-table::add-string-after)
+
+;; Args
+;;   x10 - str1
+;;   x11 - str1.len
+;;   x12 - str2
+;;   x13 - str2.len
+str-eq
+    (bne x11 x13 str-eq-false)
+    str-eq-loop
+        (beq x11 x0 str-eq-true)
+        (subi x11 x11 1)
+        (lb x6 x10)
+        (addi x10 x10 1)
+        (lb x7 x12)
+        (addi x12 x12 1)
+        (beq x6 x7 str-eq-loop)
+    str-eq-false
+        (add x10 x0 x0)
+        (jalr x0 x1)
+    str-eq-true
+        (addi x10 x0 1)
+        (jalr x0 x1)
+
