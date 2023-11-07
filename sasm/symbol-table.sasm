@@ -251,6 +251,23 @@ symbol-table-init
     (addi x2 x2 8)
     (jalr x0 x1)
 
+;; x10 - symbol
+symbol-table::symbol->string
+    (subi x10 x10 1)
+    (la x6 SYMBOL-TABLE.len)
+    (ld x6 x6)
+    (bge x10 x6 symbol-table::symbol->string-null)
+    (slli x10 x10 4)
+    (la x6 SYMBOL-TABLE)
+    (ld x6 x6)
+    (add x6 x6 x10)
+    (ld x10 x6)
+    (ld x11 (+ x6 8))
+    (jalr x0 x1)
+    symbol-table::symbol->string-null
+    (add x10 x0 x0)
+    (jalr x0 x1)
+
 ;; x10 - string pointer
 ;; x11 - string length
 symbol-table::string->symbol
