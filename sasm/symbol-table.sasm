@@ -389,4 +389,3 @@ str-eq
     str-eq-true
         (addi x10 x0 1)
         (jalr x0 x1)
-

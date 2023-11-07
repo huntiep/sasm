@@ -504,62 +504,56 @@ tokenize
 ;;  x11 - len: tokens.len : pointer to end of tokens
 ;; Locals:
 ;;  x20 - output-ptr: ArrayBuf<u32>
-;;  &x2 - output-start
-;;  x21 - labels-ptr: ArrayBuf<(String, len, usize)>
-;;  &x2+8 - labels-start
-;;  x22 - constants-ptr: ArrayBuf<(String, len, u32, u32-padding)>
-;;  &x2+16 - constants-start
+;;  &x2+8 - output-start
+;;  x21 - labels-ptr: ArrayBuf<(Symbol, usize)>
+;;  &x2+16 - labels-start
+;;  x22 - constants-ptr: ArrayBuf<(Symbol, u32, u32-padding)>
+;;  &x2+24 - constants-start
 ;;  x23 - data-ptr: ArrayBuf<u8>
-;;  &x2+24 - data-start
-;;  x24 - globals-ptr: ArrayBuf<String, str.len, data-offset>
-;;  &x2+32 - globals-start
-
-;;  x20 - output-begin: ArrayBuf<u32>
-;;  x21 - output-ptr: ArrayBuf<u32>
-;;  x22 - labels-begin: ArrayBuf<(String, len, usize)>
-;;  x23 - labels-ptr: ArrayBuf<(String, len, usize)>
-;;  x24 - constants-begin: ArrayBuf<(String, len, u32, u32-padding)>
-;;  x25 - constants-ptr: ArrayBuf<(String, len, u32, u32-padding)>
+;;  &x2+32 - data-start
+;;  x24 - globals-ptr: ArrayBuf<Symbol, data-offset>
+;;  &x2+40 - globals-start
 assemble
-    (sd (- 8 x2) x1)
-    (subi x2 x2 48)
-    (sd (- x2 8) x10)
+    (subi x2 x2 56)
+    (sd x2 x10)
+    (sd (+ x2 8) x1)
     ;; allocate 64k for code
     (addi x10 x0 1)
     (slli x10 x10 16)
     (jal x1 malloc)
     (add x20 x0 x10)
-    (sd x2 x10)
+    (sd (+ x2 16) x10)
 
     ;; allocate 4k for labels
     (addi x10 x0 1)
     (slli x10 x10 12)
     (jal x1 malloc)
     (add x21 x0 x10)
-    (sd (+ 8 x2) x10)
+    (sd (+ x2 24) x10)
 
     ;; allocate 4k for constants
     (addi x10 x0 1)
     (slli x10 x10 12)
     (jal x1 malloc)
     (add x22 x0 x10)
-    (sd (+ 16 x2) x10)
+    (sd (+ x2 32) x10)
 
     ;; allocate 4k for data
     (addi x10 x0 1)
     (slli x10 x10 12)
     (jal x1 malloc)
     (add x23 x0 x10)
-    (sd (+ 24 x2) x10)
+    (sd (+ x2 40) x10)
 
     ;; allocate 4k for globals
     (addi x10 x0 1)
     (slli x10 x10 12)
     (jal x1 malloc)
     (add x24 x0 x10)
-    (sd (+ 32 x2) x10)
+    (sd (+ x2 48) x10)
 
-    (ld x10 (- x2 8))
+    (ld x10 x2)
+    (addi x2 x2 8)
 
     assemble-loop
         (beq x11 x10 assemble-after-loop)
@@ -572,33 +566,24 @@ assemble
         (subi x29 x28 Token::LeftParen)
         (bne x29 x0 assemble-error)
 
+        (beq x11 x10 assemble-error)
         (lb x28 x10)
         (subi x29 x28 Token::Symbol)
         (bne x29 x0 assemble-error)
         (ld x28 (+ x10 8))
-        (lw x29 (+ x10 4))
         (addi x10 x10 16)
 
-        (sd (- x2 8) x10)
-        (sd (- x2 16) x11)
-        (add x10 x0 x28)
-        (add x11 x0 x29)
-        ;;(la x12 Instr::define)
-        (addi x13 x0 6)
-        (jal x1 str-eq)
-        (add x6 x0 x10)
-        (ld x11 (- x2 16))
-        (ld x10 (- x2 8))
-
-        (beq x6 x0 assemble-handle-opcode)
+        (addi x6 x0 Instr::define)
+        (bne x28 x6 assemble-handle-opcode)
     assemble-handle-define
+        (beq x11 x10 assemble-error)
         (lb x28 x10)
         (subi x29 x28 Token::Symbol)
         (bne x29 x0 assemble-error)
         (ld x28 (+ x10 8))
-        (ld x29 (+ x10 4))
         (addi x10 x10 16)
 
+        (beq x11 x10 assemble-error)
         (lb x6 x10)
         (lb x30 (+ x10 8))
         (lb x31 (+ x10 4))
@@ -611,111 +596,80 @@ assemble
         (bne x7 x0 assemble-error)
 
         assemble-handle-define-string
+            ;; add to globals
+            (sw x24 x28)
+            (sd (+ x24 8) x23)
+            (addi x24 x24 16)
+
             (subi x31 x31 2)
             (beq x31 x0 assemble-error)
             (addi x30 x30 1)
             (add x31 x31 x30)
 
-            (sd (- 8 x2) x1)
-            (sd (- 16 x2) x10)
-            (add x10 x0 x31)
-            (jal x0 malloc)
-            (add x6 x0 x10)
-            (add x7 x0 x10)
-            (ld x1 (- 8 x2))
-            (ld x10 (- 16 x2))
             assemble-handle-define-string-loop
-                (lb x8 x30)
-                (subi x9 x8 #'\\')
-                (bne x9 x0 assemble-handle-define-string-loop-no-escape)
+                (lb x6 x30)
                 (addi x30 x30 1)
-                (lb x8 x30)
-                (subi x9 x8 #'\\')
-                (beq x9 x0 assemble-handle-define-string-loop-no-escape)
-                (subi x9 x8 #'"')
-                (beq x9 x0 assemble-handle-define-string-loop-no-escape)
-                (subi x9 x8 #'r')
-                (addi x8 x0 #'\r')
-                (beq x9 x0 assemble-handle-define-string-loop-no-escape)
-                (subi x9 x8 #'n')
-                (addi x8 x0 #'\n')
-                (beq x9 x0 assemble-handle-define-string-loop-no-escape)
-                (subi x9 x8 #'t')
-                (addi x8 x0 #'\t')
-                (beq x9 x0 assemble-handle-define-string-loop-no-escape)
-                (subi x9 x8 #'0')
-                (addi x8 x0 #'\0')
-                (bne x9 x0 assemble-error)
-
-                assemble-handle-define-string-loop-no-escape
-                (sb x7 x8)
-                (addi x7 x7 1)
-                (addi x30 x30 1)
-                (bne x30 x31 assemble-handle-define-string-loop)
-
-            (sd x24 x28)
-            (sd (+ 8 x24) x29)
-            ;; TODO: maybe x23 - data-start?
-            (sd (+ 16 x24) x23)
-            ;; TODO - globals.insert(x28, x29, data.len())
-            assemble-handle-define-string-push
-                (lb x8 x6)
-                (sb x8 x23)
-                (addi x6 x6 1)
+                (subi x7 x6 #'\\')
+                (beq x7 x0 assemble-handle-define-string-loop-escape)
+                assemble-handle-define-string-loop-escape-after
+                (sb x23 x6)
                 (addi x23 x23 1)
-                (bne x6 x7 assemble-handle-define-string-push)
+                (bne x30 x31 assemble-handle-define-string-loop)
+            assemble-handle-define-string-loop-after
+                (andi x6 x23 7)
+                (addi x7 x0 8)
+                (sub x7 x7 x6)
+                (bne x6 x0 assemble-handle-define-align)
                 (jal x0 assemble-handle-define-after)
-        assemble-handle-define-int
-            (add x6 x0 x0)
-            (add x31 x31 x30)
-            (addi x8 x0 1)
-            (subi x31 x31 1)
-            assemble-handle-define-int-loop
-                (lb x7 x31)
-            ;; TODO
-        assemble-handle-define-char
-            (addi x30 x30 2)
-            (subi x31 x31 3)
-            (lb x6 x30)
-            (subi x7 x6 #'\\')
-            (bne x7 x0 assemble-handle-define-char-after)
-            assemble-handle-define-char-escape
-                (lb x30 (+ x30 1))
-                (subi x7 x30 #'\\')
+            assemble-handle-define-align
+                (sb x23 x0)
+                (addi x23 x23 1)
+                (subi x7 x7 1)
+                (bne x7 x0 assemble-handle-define-align)
+                (jal x0 assemble-handle-define-after)
+            assemble-handle-define-string-loop-escape
+                (beq x30 x31 assemble-error)
+                (lb x5 x30)
+                (addi x30 x30 1)
+                (subi x7 x5 #'\\')
                 (addi x6 x0 #'\\')
-                (beq x7 x0 assemble-handle-define-char-after)
-                (subi x7 x30 #'\'')
-                (addi x6 x0 #'\'')
-                (beq x7 x0 assemble-handle-define-char-after)
-                (subi x7 x30 #'r')
+                (beq x7 x0 assemble-handle-define-string-loop-escape-after)
+                (subi x7 x5 #'"')
+                (addi x6 x0 #'"')
+                (beq x7 x0 assemble-handle-define-string-loop-escape-after)
+                (subi x7 x5 #'r')
                 (addi x6 x0 #'\r')
-                (beq x7 x0 assemble-handle-define-char-after)
-                (subi x7 x30 #'n')
+                (beq x7 x0 assemble-handle-define-string-loop-escape-after)
+                (subi x7 x5 #'n')
                 (addi x6 x0 #'\n')
-                (beq x7 x0 assemble-handle-define-char-after)
-                (subi x7 x30 #'t')
+                (beq x7 x0 assemble-handle-define-string-loop-escape-after)
+                (subi x7 x5 #'t')
                 (addi x6 x0 #'\t')
-                (beq x7 x0 assemble-handle-define-char-after)
-                (subi x7 x30 #'0')
+                (beq x7 x0 assemble-handle-define-string-loop-escape-after)
+                (subi x7 x5 #'0')
                 (addi x6 x0 #'\0')
-            assemble-handle-define-char-after
-                (sd x25 x28)
-                (sd (+ 8 x25) x29)
-                (sw (+ 16 x25) x6)
-                (addi x25 x25 24)
+                (beq x7 x0 assemble-handle-define-string-loop-escape-after)
+                (jal x0 assemble-error)
+
+        assemble-handle-define-int
+        assemble-handle-define-char
+            (sw x22 x28)
+            (sw (+ x22 4) x30)
+            (addi x22 x22 8)
         assemble-handle-define-after
+            (beq x11 x10 assemble-error)
             (lb x28 x10)
             (subi x28 x28 Token::RightParen)
-            (addi x10 x0 16)
+            (addi x10 x10 16)
             (bne x28 x0 assemble-error)
             (jal x0 assemble-loop)
     assemble-add-label
         (ld x28 (- x10 8))
-        (lw x29 (- x10 12))
         (sd x23 x28)
-        (sd (+ 8 x23) x29)
-        (sd (+ 16 x23) x21)
-        (addi x23 x23 24)
+        (ld x6 (+ x2 8))
+        (sub x6 x21 x6)
+        (sd (+ 8 x23) x6)
+        (addi x23 x23 16)
         (jal x0 assemble-loop)
     assemble-handle-opcode
         (ld x10 (- x10 8))
