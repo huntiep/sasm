@@ -282,6 +282,7 @@ symbol-table::string->symbol
         (la x6 SYMBOL-TABLE.len)
         (ld x6 x6)
         (sub x10 x6 x21)
+        (addi x10 x10 1)
         (ld x1 (+ x2 16))
         (addi x2 x2 24)
         (jalr x0 x1)

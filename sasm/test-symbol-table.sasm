@@ -4,20 +4,39 @@
 (la x10 s1)
 (addi x11 x0 (len s1))
 (jal x1 symbol-table::string->symbol)
+(addi x6 x0 1)
+(bne x10 x6 test-symbol-table-error)
+
 (la x10 s1)
 (addi x11 x0 (len s1))
 (jal x1 symbol-table::string->symbol)
+(addi x6 x0 1)
+(bne x10 x6 test-symbol-table-error)
+
 (la x10 s2)
 (addi x11 x0 (len s2))
 (jal x1 symbol-table::string->symbol)
+(addi x6 x0 2)
+(bne x10 x6 test-symbol-table-error)
+
 (la x10 s2)
 (addi x11 x0 (len s2))
 (jal x1 symbol-table::string->symbol)
+(addi x6 x0 2)
+(bne x10 x6 test-symbol-table-error)
+
 (la x10 s1)
 (addi x11 x0 (len s1))
 (jal x1 symbol-table::string->symbol)
+(addi x6 x0 1)
+(bne x10 x6 test-symbol-table-error)
 
 ;; exit(0)
 (add x10 x0 x0)
+(addi x17 x0 93)
+(ecall)
+
+test-symbol-table-error
+(addi x10 x0 1)
 (addi x17 x0 93)
 (ecall)
