@@ -573,6 +573,8 @@ assemble
         (ld x28 (+ x10 8))
         (addi x10 x10 16)
 
+        (addi x6 x0 Instr::include)
+        (beq x28 x6 assemble-handle-include)
         (addi x6 x0 Instr::define)
         (bne x28 x6 assemble-handle-opcode)
     assemble-handle-define
@@ -592,6 +594,8 @@ assemble
         (beq x7 x0 assemble-handle-define-int)
         (subi x7 x6 Token::Char)
         (beq x7 x0 assemble-handle-define-char)
+        (subi x7 x6 Token::Pound)
+        (beq x7 x0 assemble-handle-define-vec)
         (subi x7 x6 Token::String)
         (bne x7 x0 assemble-error)
 
@@ -651,6 +655,9 @@ assemble
                 (beq x7 x0 assemble-handle-define-string-loop-escape-after)
                 (jal x0 assemble-error)
 
+        ;; TODO
+        assemble-handle-define-vec
+
         assemble-handle-define-int
         assemble-handle-define-char
             (sw x22 x28)
@@ -663,6 +670,9 @@ assemble
             (addi x10 x10 16)
             (bne x28 x0 assemble-error)
             (jal x0 assemble-loop)
+    ;; TODO
+    assemble-handle-include
+
     assemble-add-label
         (ld x28 (- x10 8))
         (sd x23 x28)
@@ -672,307 +682,166 @@ assemble
         (addi x23 x23 16)
         (jal x0 assemble-loop)
     assemble-handle-opcode
-        (ld x10 (- x10 8))
-        (ld x11 (- x10 12))
-        ;;(la x12 Instr::add)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        ;; TODO
-        (bne x10 x0 assemble-r)
+        (ld x6 (- x10 8))
+        ;; R instructions
+        (subi x7 x6 Instr::mul)
+        (subi x7 x7 1)
+        (blt x7 x0 assemble-r)
 
-        (ld x11 (- x2 16))
-        (ld x10 (- x2 8))
+        ;; I instructions
+        (subi x7 x6 Instr::sltiu)
+        (subi x7 x7 1)
+        (blt x7 x0 assemble-i)
+
+        ;; I2 instructions
+        (subi x7 x6 Instr::lwu)
+        (subi x7 x7 1)
+        (blt x7 x0 assemble-i2)
+        (subi x7 x6 Instr::la)
+        (beq x7 x0 assemble-la)
+
+        ;; S instructions
+        (subi x7 x6 Instr::sd)
+        (subi x7 x7 1)
+        (blt x7 x0 assemble-s)
+
+        ;; B instructions
+        (subi x7 x6 Instr::bgeu)
+        (subi x7 x7 1)
+        (blt x7 x0 assemble-b)
+
+        ;; Other instructions
+        (subi x7 x6 Instr::jal)
+        (beq x7 x0 assemble-la)
+
+        (subi x7 x6 Instr::jalr)
+        (beq x7 x0 assemble-la)
+
+        (subi x7 x6 Instr::lui)
+        (beq x7 x0 assemble-la)
+
+        (subi x7 x6 Instr::auipc)
+        (beq x7 x0 assemble-la)
+
+        (subi x7 x6 Instr::ecall)
+        (beq x7 x0 assemble-la)
+
+        (subi x7 x6 Instr::ebreak)
+        (beq x7 x0 assemble-la)
+
+    (define funct3-table #(0 0 4 6 7 1 5 5 2 3 0    ;; r
+                           0 0 4 6 7 1 5 5 2 3      ;; i
+                           0 1 2 3 4 5 6 0          ;; i2 - last item is gap for la
+                           0 1 2 3                  ;; s
+                           0 1 4 5 6 7))            ;; b
     assemble-r
-        ;; TODO
+        (addi x5 x0 51)
+        ;; funct3
+        (la x7 funct3-table)
+        (add x7 x7 x6)
+        (lb x7 (- x7 Instr::add))
+        (slli x7 x7 12)
+        (or x5 x5 x7)
+        ;; funct7
+        (subi x7 x6 Instr::sub)
+        (beq x7 x0 assemble-r-funct7-sub)
+        (subi x7 x6 Instr::sra)
+        (beq x7 x0 assemble-r-funct7-sub)
+        (subi x7 x6 Instr::mul)
+        (beq x7 x0 assemble-r-funct7-mul)
+        (add x7 x0 x0)
+        assemble-r-funct7-after
+        (slli x7 x7 25)
+        (or x5 x5 x7)
         ;; rd
         (jal x1 assemble-unwrap-register)
         (slli x6 x6 7)
-        ;(or _ _ x6)
+        (or x5 x5 x6)
         ;; rs1
         (jal x1 assemble-unwrap-register)
         (slli x6 x6 15)
-        ;(or _ _ x6)
+        (or x5 x5 x6)
         ;; rs2
         (jal x1 assemble-unwrap-register)
         (slli x6 x6 20)
-        ;(or _ _ x6)
+        (or x5 x5 x6)
+
+        (sw x20 x5)
+        (addi x20 x20 4)
+        (jal assemble-after-opcode)
+
+        assemble-r-funct7-sub
+            (addi x7 x0 32)
+            (jal x0 assemble-r-funct7-after)
+        assemble-r-funct7-mul
+            (addi x7 x0 1)
+            (jal x0 assemble-r-funct7-after)
+
+    assemble-i
+        (addi x5 x0 19)
+        ;; funct3
+        (la x7 funct3-table)
+        (add x7 x7 x6)
+        (lb x7 (- x7 Instr::add))
+        (slli x7 x7 12)
+        (or x5 x5 x7)
+        ;; rd
+        (jal x1 assemble-unwrap-register)
+        (slli x6 x6 7)
+        (or x5 x5 x6)
+        ;; rs1
+        (jal x1 assemble-unwrap-register)
+        (slli x6 x6 15)
+        (or x5 x5 x6)
+        ;; imm
+        (jal x1 assemble-unwrap-imm)
+        (slli x6 x6 20)
+        (or x5 x5 x6)
+
+        (sw x20 x5)
+        (addi x20 x20 4)
+        (jal assemble-after-opcode)
+
+    assemble-after-opcode
+        (beq x10 x11 assemble-error)
+        (lb x6 x10)
+        (subi x6 x6 Token::RightParen)
+        (bne x6 x0 assemble-error)
+        (addi x10 x10 16)
+        (jal assemble-loop)
+
     assemble-unwrap-register
+        (beq x10 x11 assemble-error)
         (lb x6 x10)
         (subi x6 x6 Token::Symbol)
         (bne x6 x0 assemble-error)
         (ld x6 (+ x10 8))
-        (lw x7 (+ x10 4))
         (addi x10 x10 16)
-        (sd (- x2 8) x1)
-        (sd (- x2 16) x10)
-        (sd (- x2 24) x11)
-        (sd (- x2 32) x6)
-        (sw (- x2 36) x7)
+        (subi x7 x6 Register::x31)
+        (subi x7 x7 1)
+        (bge x7 x0 assemble-error)
+        (subi x6 x6 1)
+        (jalr x0 x1)
 
-        (add x10 x0 x6)
-        (add x11 x0 x7)
-        ;;(la x12 Register::x0)
-        (addi x13 x0 2)
-        (jal x1 str-eq)
-        (add x6 x0 x0)
-        (bne x10 x0 assemble-unwrap-register-after)
+    ;; TODO
+    assemble-unwrap-imm
 
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x1)
-        (addi x13 x0 2)
-        (jal x1 str-eq)
-        (addi x6 x0 1)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x2)
-        (addi x13 x0 2)
-        (jal x1 str-eq)
-        (addi x6 x0 2)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x3)
-        (addi x13 x0 2)
-        (jal x1 str-eq)
-        (addi x6 x0 3)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x4)
-        (addi x13 x0 2)
-        (jal x1 str-eq)
-        (addi x6 x0 4)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x5)
-        (addi x13 x0 2)
-        (jal x1 str-eq)
-        (addi x6 x0 5)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x6)
-        (addi x13 x0 2)
-        (jal x1 str-eq)
-        (addi x6 x0 6)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x7)
-        (addi x13 x0 2)
-        (jal x1 str-eq)
-        (addi x6 x0 7)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x8)
-        (addi x13 x0 2)
-        (jal x1 str-eq)
-        (addi x6 x0 8)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x9)
-        (addi x13 x0 2)
-        (jal x1 str-eq)
-        (addi x6 x0 9)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x10)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 10)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x11)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 11)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x12)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 12)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x13)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 13)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x14)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 14)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x15)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 15)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x16)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 16)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x17)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 17)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x18)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 18)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x19)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 19)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x20)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 20)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x21)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 21)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x22)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 22)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x23)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 23)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x24)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 24)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x25)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 25)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x26)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 26)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x27)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 27)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x28)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 28)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x29)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 29)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x30)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 30)
-        (bne x10 x0 assemble-unwrap-register-after)
-
-        (ld x10 (- x2 32))
-        (lw x11 (- x2 36))
-        ;;(la x12 Register::x31)
-        (addi x13 x0 3)
-        (jal x1 str-eq)
-        (addi x6 x0 31)
-        (beq x10 x0 assemble-error)
-        assemble-unwrap-register-after
-            (sd (- x2 8) x1)
-            (sd (- x2 16) x10)
-            (sd (- x2 24) x11)
-            ;; TODO - return value is in x6
-            (jalr x0 x1)
     assemble-after-loop
+        ;; Free memory
+        (ld x10 (+ x2 16))
+        (jal x1 free)
+        (ld x10 (+ x2 24))
+        (jal x1 free)
+        (ld x10 (+ x2 40))
+        (jal x1 free)
+
+        (ld x10 (+ x2 8))
+        (add x11 x0 x20)
+        (ld x12 (+ x2 32))
+        (add x13 x0 x23)
+
         (ld x1 x2)
-        (addi x2 x2 8)
+        (addi x2 x2 48)
         (jalr x0 x1)
     assemble-error
         (addi x10 x0 30)
