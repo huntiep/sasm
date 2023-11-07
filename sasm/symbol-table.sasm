@@ -247,6 +247,10 @@ symbol-table-init
     (addi x11 x0 (len Instr::mul::str))
     (jal x1 symbol-table::string->symbol)
 
+    (la x10 Instr::include!::str)
+    (addi x11 x0 (len Instr::include!::str))
+    (jal x1 symbol-table::string->symbol)
+
     (ld x1 x2)
     (addi x2 x2 8)
     (jalr x0 x1)
