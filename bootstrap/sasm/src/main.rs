@@ -49,7 +49,6 @@ struct Asm {
     rewrites: HashMap<usize, usize>,
     constants: HashMap<String, i32>,
     globals: HashMap<String, usize>,
-    register_aliases: HashMap<String, Register>,
 }
 
 macro_rules! r {
@@ -122,7 +121,6 @@ impl Asm {
             rewrites: HashMap::new(),
             constants: HashMap::new(),
             globals: HashMap::new(),
-            register_aliases: HashMap::new(),
         };
 
         asm.assemble(tokens, input);
@@ -170,10 +168,6 @@ impl Asm {
         };
 
         match tokens.next().unwrap() {
-            s @ Token::Symbol(_) => {
-                let r = Register::from_str(s.as_str(input)).unwrap();
-                self.register_aliases.insert(var, r);
-            }
             s @ Token::Integer(_) => {
                 let i = s.as_str(input).parse().unwrap();
                 self.constants.insert(var, i);
@@ -247,11 +241,7 @@ impl Asm {
     fn unwrap_register<'b, I: Iterator<Item = &'b Token>>(&self, tokens: &mut I, input: &str) -> Register {
         if let Some(Token::Symbol(i)) = tokens.next() {
             let reg = Token::Symbol(*i).as_str(input);
-            if let Some(r) = Register::from_str(reg) {
-                r
-            } else {
-                *self.register_aliases.get(reg).unwrap()
-            }
+            Register::from_str(reg).unwrap()
         } else {
             unreachable!();
         }
@@ -261,11 +251,7 @@ impl Asm {
         match tokens.next().unwrap() {
             s @ Token::Symbol(_) => {
                 let s = s.as_str(input);
-                if let Some(r) = Register::from_str(s) {
-                    (r, 0)
-                } else {
-                    (*self.register_aliases.get(s).unwrap(), 0)
-                }
+                (Register::from_str(s).unwrap(), 0)
             }
             Token::LParen(_) => {
                 let negate = match tokens.next().unwrap() {
@@ -282,8 +268,6 @@ impl Asm {
                         let s = s.as_str(input);
                         let (r, i) = if let Some(r) = Register::from_str(s) {
                             (Some(r), None)
-                        } else if let Some(r) = self.register_aliases.get(s) {
-                            (Some(*r), None)
                         } else {
                             (None, Some(*self.constants.get(s).unwrap()))
                         };

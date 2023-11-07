@@ -1234,18 +1234,14 @@ elf
     ;; 64 + 56 + 56
     (define Elf::data_offset 176)
 
-    ;; Register aliases
-    (define out x20)
-    (define out-start x20)
-
     ;; Allocate 64k for exe output
     (sd (- 8 x2) x10)
     (sd (- 16 x2) x1)
     (addi x10 x0 1)
     (slli x10 x10 16)
     (jal x1 malloc)
-    (add out x0 x10)
-    (add out-start x0 x10)
+    (add x20 x0 x10)
+    (add x20 x0 x10)
     (ld x10 (- x2 8))
     (ld x1 (- x2 16))
 
@@ -1332,8 +1328,8 @@ elf
         (la x7 elf-ehdr)
         elf-write-ehdr-loop
             (ld x8 x7)
-            (sd out x7)
-            (addi out out 8)
+            (sd x20 x7)
+            (addi x20 x20 8)
             (addi x7 x7 8)
             (subi x6 x6 1)
             (bne x6 x0 elf-write-ehdr-loop)
@@ -1360,31 +1356,31 @@ elf
         (la x7 elf-phdr-text)
         elf-write-phdrs-text-loop
             (ld x8 x7)
-            (sd out x7)
-            (addi out out 8)
+            (sd x20 x7)
+            (addi x20 x20 8)
             (addi x7 x7 8)
             (subi x6 x6 1)
             (bne x6 x0 elf-write-phdrs-text-loop)
-            (sd (- out 24) x21)
-            (sd (- out 16) x21)
+            (sd (- x20 24) x21)
+            (sd (- x20 16) x21)
 
         (addi x6 x0 7)
         (la x7 elf-phdr-data)
         elf-write-phdrs-data-loop
             (ld x8 x7)
-            (sd out x7)
-            (addi out out 8)
+            (sd x20 x7)
+            (addi x20 x20 8)
             (addi x7 x7 8)
             (subi x6 x6 1)
             (bne x6 x0 elf-write-phdrs-data-loop)
-            (sd (- out 24) x22)
-            (sd (- out 16) x22)
+            (sd (- x20 24) x22)
+            (sd (- x20 16) x22)
 
     elf-write-program
         (lw x6 x10)
-        (sw out x6)
+        (sw x20 x6)
         (addi x10 x10 4)
-        (addi out out 4)
+        (addi x20 x20 4)
         (bne x10 x11 elf-write-program)
     elf-write-data
         (beq x13 x0 elf-write-program)
@@ -1392,8 +1388,8 @@ elf
         (ld x29 (+ 8 x12))
         elf-write-data-inner
             (lb x30 x29)
-            (sb out x30)
-            (addi out out 1)
+            (sb x20 x30)
+            (addi x20 x20 1)
             (addi x29 x29 1)
             (subi x28 x28 1)
             (bne x28 x0 elf-write-data-inner)
@@ -1401,6 +1397,6 @@ elf
         (subi x13 x13 1)
         (jal x0 elf-write-data)
     elf-after
-        (add x10 x0 out-start)
-        (add x11 x0 out)
+        (add x10 x0 x20)
+        (add x11 x0 x20)
         (jalr x0 x1)
