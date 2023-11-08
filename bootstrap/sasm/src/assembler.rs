@@ -115,6 +115,8 @@ impl Assembler {
     r!(slt, 0x2, 0x00);
     r!(sltu, 0x3, 0x00);
     r!(mul, 0x0, 0x01);
+    r!(div, 0x4, 0x01);
+    r!(rem, 0x6, 0x01);
 
     #[inline]
     fn i(&mut self, rd: Register, rs: Register, funct3: u32, imm: i32, opcode: u32) {
