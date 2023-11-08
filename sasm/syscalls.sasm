@@ -1,3 +1,7 @@
+(define STDIN 0)
+(define STDOUT 1)
+(define STDERR 2)
+
 (define SYS_OPENAT 56)
 (define SYS_CLOSE 57)
 (define SYS_WRITE 64)
