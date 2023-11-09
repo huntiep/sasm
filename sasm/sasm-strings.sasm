@@ -170,3 +170,7 @@
 
 (define Instr::len::str "len")
 (define Instr::len 82)
+(define Instr::+::str "+")
+(define Instr::+ 83)
+(define Instr::-::str "-")
+(define Instr::- 84)

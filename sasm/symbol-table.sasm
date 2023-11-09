@@ -260,6 +260,12 @@ symbol-table-init
     (la x10 Instr::len::str)
     (addi x11 x0 (len Instr::len::str))
     (jal x1 symbol-table::string->symbol)
+    (la x10 Instr::+::str)
+    (addi x11 x0 (len Instr::+::str))
+    (jal x1 symbol-table::string->symbol)
+    (la x10 Instr::-::str)
+    (addi x11 x0 (len Instr::-::str))
+    (jal x1 symbol-table::string->symbol)
 
     (ld x1 x2)
     (addi x2 x2 8)
