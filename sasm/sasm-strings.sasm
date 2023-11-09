@@ -167,3 +167,6 @@
 (define Instr::ecall 80)
 (define Instr::ebreak::str "ebreak")
 (define Instr::ebreak 81)
+
+(define Instr::len::str "len")
+(define Instr::len 82)
