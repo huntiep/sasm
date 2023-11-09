@@ -38,43 +38,9 @@ start
     (bne x10 x11 error-argc)
 
     ;; Open input file
-    ;; openat(AT_FDCWD, input-name, O_RDONLY, 0)
-    (addi x10 x0 -100)
     ;; argv[1]
     (ld x11 (+ x2 16))
-    (add x12 x0 x0)
-    (add x13 x0 x0)
-    (addi x17 x0 SYS_OPENAT)
-    (ecall)
-    (blt x10 x0 error-open)
-
-    ;; Read input file to buffer
-    ;; mmap(NULL, 64k, PROT_READ, MAP_PRIVATE, fd, 0)
-    (add x14 x0 x10)
-    (add x10 x0 x0)
-    (addi x11 x0 1)
-    (slli x11 x11 16)
-    (addi x12 x0 1)
-    (addi x13 x0 2)
-    (add x15 x0 x0)
-    (addi x17 x0 SYS_MMAP)
-    (ecall)
-    (blt x10 x0 error-read-input)
-    (beq x10 x0 error-read-input)
-
-    (add x31 x0 x10)
-
-    ;; close(fd)
-    (add x10 x0 x14)
-    (addi x17 x0 57)
-    (ecall)
-
-    (add x10 x0 x31)
-    (addi x11 x10 -1)
-    read-file-length-loop
-        (addi x11 x11 1)
-        (lb x28 x11)
-        (bne x28 x0 read-file-length-loop)
+    (jal x1 read-file)
 
     ;; Tokenize(input, input.len) -> (tokens, tokens.len)
     (jal x1 tokenize)
@@ -133,19 +99,64 @@ start
 
     error-argc
         (addi x10 x0 1)
-        (jal x0 exit-error)
-    error-open
-        (addi x10 x0 2)
-        (jal x0 exit-error)
-    error-read-input
-        (addi x10 x0 3)
-        (jal x0 exit-error)
-    exit-error
         (addi x17 x0 SYS_EXIT)
         (ecall)
 
 (include! "symbol-table.sasm")
 (include! "malloc.sasm")
+
+;; Args:
+;;  x11 - filename
+;;
+;; Ret:
+;;  x10 - input: String
+;;  x11 - input.len : pointer to end of input
+read-file
+    ;; openat(AT_FDCWD, input-name, O_RDONLY, 0)
+    (addi x10 x0 AT_FDCWD)
+    (add x12 x0 x0)
+    (add x13 x0 x0)
+    (addi x17 x0 SYS_OPENAT)
+    (ecall)
+    (blt x10 x0 error-open)
+
+    ;; Read input file to buffer
+    ;; mmap(NULL, 64k, PROT_READ, MAP_PRIVATE, fd, 0)
+    (add x14 x0 x10)
+    (add x10 x0 x0)
+    (addi x11 x0 1)
+    (slli x11 x11 16)
+    (addi x12 x0 1)
+    (addi x13 x0 2)
+    (add x15 x0 x0)
+    (addi x17 x0 SYS_MMAP)
+    (ecall)
+    (blt x10 x0 error-read-input)
+    (beq x10 x0 error-read-input)
+
+    (add x31 x0 x10)
+
+    ;; close(fd)
+    (add x10 x0 x14)
+    (addi x17 x0 57)
+    (ecall)
+
+    (add x10 x0 x31)
+    (addi x11 x10 -1)
+    read-file-length-loop
+        (addi x11 x11 1)
+        (lb x28 x11)
+        (bne x28 x0 read-file-length-loop)
+
+    (jalr x0 x1)
+    error-open
+        (addi x10 x0 2)
+        (addi x17 x0 SYS_EXIT)
+        (ecall)
+    error-read-input
+        (addi x10 x0 3)
+        (addi x17 x0 SYS_EXIT)
+        (ecall)
 
 ;; Args:
 ;;  x10 - input: String
