@@ -691,7 +691,6 @@ assemble
             (addi x10 x10 16)
             (bne x28 x0 assemble-error)
             (jal x0 assemble-loop)
-    ;; TODO
     assemble-handle-include
         (subi x2 x2 56)
         (sd x2 x20)
@@ -776,22 +775,22 @@ assemble
 
         ;; Other instructions
         (subi x7 x6 Instr::jal)
-        (beq x7 x0 assemble-la)
+        (beq x7 x0 assemble-jal)
 
         (subi x7 x6 Instr::jalr)
-        (beq x7 x0 assemble-la)
+        (beq x7 x0 assemble-jalr)
 
         (subi x7 x6 Instr::lui)
-        (beq x7 x0 assemble-la)
+        (beq x7 x0 assemble-lui)
 
         (subi x7 x6 Instr::auipc)
-        (beq x7 x0 assemble-la)
+        (beq x7 x0 assemble-auipc)
 
         (subi x7 x6 Instr::ecall)
-        (beq x7 x0 assemble-la)
+        (beq x7 x0 assemble-ecall)
 
         (subi x7 x6 Instr::ebreak)
-        (beq x7 x0 assemble-la)
+        (beq x7 x0 assemble-ebreak)
 
     (define funct3-table #(0 0 4 6 7 1 5 5 2 3 0 4 6    ;; r
                            0 0 4 6 7 1 5 5 2 3          ;; i
@@ -866,6 +865,45 @@ assemble
         (slli x6 x6 20)
         (or x5 x5 x6)
 
+        (sw x20 x5)
+        (addi x20 x20 4)
+        (jal assemble-after-opcode)
+
+    ;; TODO
+    assemble-i2
+
+    ;; TODO
+    assemble-s
+
+    ;; TODO
+    assemble-b
+
+    ;; TODO
+    assemble-la
+
+    ;; TODO
+    assemble-jal
+
+    ;; TODO
+    assemble-jalr
+
+    ;; TODO
+    assemble-lui
+
+    ;; TODO
+    assemble-auipc
+
+    assemble-ecall
+        (addi x5 x0 0b1110011)
+        (sw x20 x5)
+        (addi x20 x20 4)
+        (jal assemble-after-opcode)
+
+    assemble-ebreak
+        (addi x5 x0 0b1110011)
+        (addi x6 x0 1)
+        (slli x6 x0 12)
+        (or x5 x5 x6)
         (sw x20 x5)
         (addi x20 x20 4)
         (jal assemble-after-opcode)
