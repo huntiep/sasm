@@ -522,7 +522,7 @@ tokenize
 ;;  &x2+24 - constants-start
 ;;  x23 - data-ptr: ArrayBuf<u8>
 ;;  &x2+32 - data-start
-;;  x24 - globals-ptr: ArrayBuf<Symbol, data-offset>
+;;  x24 - globals-ptr: ArrayBuf<(Symbol, data-offset, len)>
 ;;  &x2+40 - globals-start
 ;;  x25 - include!-stack-ptr: ArrayBuf<(*tokens, *tokens.len)>
 ;;  x26 - include!-stack-start
@@ -624,10 +624,12 @@ assemble
             ;; add to globals
             (sw x24 x28)
             (sd (+ x24 8) x23)
-            (addi x24 x24 16)
 
             (subi x31 x31 2)
             (beq x31 x0 assemble-error)
+            (sd (+ x24 16) x31)
+            (addi x24 x24 24)
+
             (addi x30 x30 1)
             (add x31 x31 x30)
 
@@ -835,7 +837,7 @@ assemble
 
         (sw x20 x5)
         (addi x20 x20 4)
-        (jal assemble-after-opcode)
+        (jal x0 assemble-after-opcode)
 
         assemble-r-funct7-sub
             (addi x7 x0 32)
@@ -867,7 +869,7 @@ assemble
 
         (sw x20 x5)
         (addi x20 x20 4)
-        (jal assemble-after-opcode)
+        (jal x0 assemble-after-opcode)
 
     ;; TODO
     assemble-i2
@@ -897,7 +899,7 @@ assemble
         (addi x5 x0 0b1110011)
         (sw x20 x5)
         (addi x20 x20 4)
-        (jal assemble-after-opcode)
+        (jal x0 assemble-after-opcode)
 
     assemble-ebreak
         (addi x5 x0 0b1110011)
@@ -906,7 +908,7 @@ assemble
         (or x5 x5 x6)
         (sw x20 x5)
         (addi x20 x20 4)
-        (jal assemble-after-opcode)
+        (jal x0 assemble-after-opcode)
 
     assemble-after-opcode
         (beq x10 x11 assemble-error)
@@ -914,7 +916,7 @@ assemble
         (subi x6 x6 Token::RightParen)
         (bne x6 x0 assemble-error)
         (addi x10 x10 16)
-        (jal assemble-loop)
+        (jal x0 assemble-loop)
 
     assemble-unwrap-register
         (beq x10 x11 assemble-error)
@@ -929,8 +931,67 @@ assemble
         (subi x6 x6 1)
         (jalr x0 x1)
 
-    ;; TODO
     assemble-unwrap-imm
+        (beq x10 x11 assemble-error)
+        (lb x6 x10)
+        (addi x10 x10 16)
+        (subi x7 x6 Token::LeftParen)
+        (beq x7 x0 assemble-unwrap-imm-len)
+        (subi x7 x6 Token::Symbol)
+        (beq x7 x0 assemble-unwrap-imm-symbol)
+        (subi x7 x6 Token::Char)
+        (beq x7 x0 assemble-unwrap-imm-imm)
+        (subi x7 x6 Token::Integer)
+        (beq x7 x0 assemble-unwrap-imm-imm)
+        (jal x0 assemble-error)
+
+        unwrap-imm-imm
+            (ld x6 (- x10 8))
+            (jalr x0 x1)
+
+        unwrap-imm-symbol
+            (ld x6 (- x10 8))
+            (ld x28 (+ x2 24))
+            (add x29 x0 x22)
+            unwrap-imm-symbol-loop
+                (beq x28 x29 assemble-error)
+                (ld x7 x28)
+                (beq x6 x7 unwrap-imm-symbol-loop-after)
+                (addi x28 x28 16)
+                (jal x0 unwrap-imm-symbol-loop)
+            unwrap-imm-symbol-loop-after
+                (lw x6 (+ x28 8))
+                (jalr x0 x1)
+
+        unwrap-imm-len
+            (lb x6 x10)
+            (subi x6 x6 Token::Symbol)
+            (bne x6 x0 assemble-error)
+            (ld x6 (+ x10 8))
+            (subi x6 x6 Instr::len)
+            (bne x6 x0 assemble-error)
+            (addi x10 x10 16)
+
+            (lb x6 x10)
+            (subi x6 x6 Token::Symbol)
+            (bne x6 x0 assemble-error)
+            (ld x6 (+ x10 8))
+            (addi x10 x10 16)
+            (ld x28 (+ x2 40))
+            (add x29 x0 x24)
+            unwrap-imm-len-loop
+                (beq x28 x29 assemble-error)
+                (ld x7 x28)
+                (beq x6 x7 unwrap-imm-len-loop-after)
+                (addi x28 x28 24)
+                (jal x0 unwrap-imm-len-loop)
+            unwrap-imm-len-loop-after
+                (lw x6 (+ x28 16))
+                (lb x7 x10)
+                (addi x10 x10 16)
+                (subi x7 x7 Token::RightParen)
+                (bne x7 x0 assemble-error)
+                (jalr x0 x1)
 
     assemble-after-loop
         (beq x25 x26 assemble-after-loop-free)
