@@ -524,6 +524,8 @@ tokenize
 ;;  &x2+32 - data-start
 ;;  x24 - globals-ptr: ArrayBuf<Symbol, data-offset>
 ;;  &x2+40 - globals-start
+;;  x25 - include!-stack-ptr: ArrayBuf<(*tokens, *tokens.len)>
+;;  x26 - include!-stack-start
 assemble
     (subi x2 x2 56)
     (sd x2 x10)
@@ -563,6 +565,14 @@ assemble
     (add x24 x0 x10)
     (sd (+ x2 48) x10)
 
+    ;; allocate 4k for include! stack
+    (addi x10 x0 1)
+    (slli x10 x10 12)
+    (jal x1 malloc)
+    (add x25 x0 x10)
+    (add x26 x0 x10)
+
+
     (ld x10 x2)
     (addi x2 x2 8)
 
@@ -584,7 +594,7 @@ assemble
         (ld x28 (+ x10 8))
         (addi x10 x10 16)
 
-        (addi x6 x0 Instr::include)
+        (addi x6 x0 Instr::include!)
         (beq x28 x6 assemble-handle-include)
         (addi x6 x0 Instr::define)
         (bne x28 x6 assemble-handle-opcode)
@@ -683,6 +693,49 @@ assemble
             (jal x0 assemble-loop)
     ;; TODO
     assemble-handle-include
+        (subi x2 x2 56)
+        (sd x2 x20)
+        (sd (+ x2 8) x21)
+        (sd (+ x2 16) x22)
+        (sd (+ x2 24) x23)
+        (sd (+ x2 32) x24)
+
+        (beq x10 x11 assemble-error)
+        (lb x6 x10)
+        (subi x6 x6 Token::String)
+        (bne x6 x0 assemble-error)
+        (addi x10 x10 16)
+        (lb x6 x10)
+        (subi x6 x6 Token::RightParen)
+        (bne x6 x0 assemble-error)
+        (ld x6 (- x10 8))
+        (lw x7 (- x10 12))
+        (addi x10 x10 16)
+
+        (sd x25 x10)
+        (sd (+ x25 8) x11)
+        (addi x25 x25 16)
+
+        (sd (+ x2 40) x25)
+        (sd (+ x2 48) x26)
+
+        (add x11 x0 x6)
+        (add x6 x0 x0)
+        (add x7 x6 x7)
+        (sb x7 x6)
+
+        (jal x1 read-file)
+        (jal x1 tokenize)
+
+        (ld x20 x2)
+        (ld x21 (+ x2 8))
+        (ld x22 (+ x2 16))
+        (ld x23 (+ x2 24))
+        (ld x24 (+ x2 32))
+        (ld x25 (+ x2 40))
+        (ld x26 (+ x2 48))
+        (addi x2 x2 56)
+        (jal x0 assemble-loop)
 
     assemble-add-label
         (ld x28 (- x10 8))
@@ -842,6 +895,12 @@ assemble
     assemble-unwrap-imm
 
     assemble-after-loop
+        (beq x25 x26 assemble-after-loop-free)
+        (subi x25 x25 16)
+        (ld x10 x25)
+        (ld x11 (+ x25 8))
+        (jal x0 assemble-loop)
+    assemble-after-loop-free
         ;; Free memory
         (ld x10 (+ x2 16))
         (jal x1 free)
