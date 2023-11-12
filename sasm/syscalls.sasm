@@ -2,10 +2,15 @@
 (define STDOUT 1)
 (define STDERR 2)
 
+(define SEEK_SET 0)
+(define SEEK_CUR 1)
+(define SEEK_END 2)
+
 (define AT_FDCWD -100)
 
 (define SYS_OPENAT 56)
 (define SYS_CLOSE 57)
+(define SYS_LSEEK 62)
 (define SYS_WRITE 64)
 (define SYS_EXIT 93)
 (define SYS_BRK 214)
