@@ -120,7 +120,7 @@ read-file
     (ecall)
     (blt x10 x0 error-open)
 
-    (add x31 x0 x10)
+    (add x30 x0 x10)
     ;; lseek(fd, 0, SEEK_END)
     (add x11 x0 x0)
     (addi x12 x0 SEEK_END)
@@ -128,7 +128,7 @@ read-file
     (ecall)
     (add x31 x0 x10)
     ;; lseek(fd, 0, SEEK_SET)
-    (add x10 x0 x31)
+    (add x10 x0 x30)
     (add x11 x0 x0)
     (addi x12 x0 SEEK_SET)
     (addi x17 x0 SYS_LSEEK)
@@ -136,7 +136,7 @@ read-file
 
     ;; Read input file to buffer
     ;; mmap(NULL, 64k, PROT_READ, MAP_PRIVATE, fd, 0)
-    (add x14 x0 x31)
+    (add x14 x0 x30)
     (add x10 x0 x0)
     (addi x11 x0 1)
     (slli x11 x11 16)
