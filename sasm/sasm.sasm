@@ -906,13 +906,13 @@ assemble
     assemble-auipc
 
     assemble-ecall
-        (addi x5 x0 0b1110011)
+        (addi x5 x0 115)
         (sw x20 x5)
         (addi x20 x20 4)
         (jal x0 assemble-after-opcode)
 
     assemble-ebreak
-        (addi x5 x0 0b1110011)
+        (addi x5 x0 115)
         (addi x6 x0 1)
         (slli x6 x0 12)
         (or x5 x5 x6)
@@ -955,25 +955,25 @@ assemble
         (beq x7 x0 assemble-unwrap-imm-imm)
         (jal x0 assemble-error)
 
-        unwrap-imm-imm
+        assemble-unwrap-imm-imm
             (ld x6 (- x10 8))
             (jalr x0 x1)
 
-        unwrap-imm-symbol
+        assemble-unwrap-imm-symbol
             (ld x6 (- x10 8))
             (ld x28 (+ x2 24))
             (add x29 x0 x22)
-            unwrap-imm-symbol-loop
+            assemble-unwrap-imm-symbol-loop
                 (beq x28 x29 assemble-error)
                 (ld x7 x28)
-                (beq x6 x7 unwrap-imm-symbol-loop-after)
+                (beq x6 x7 assemble-unwrap-imm-symbol-loop-after)
                 (addi x28 x28 16)
-                (jal x0 unwrap-imm-symbol-loop)
-            unwrap-imm-symbol-loop-after
+                (jal x0 assemble-unwrap-imm-symbol-loop)
+            assemble-unwrap-imm-symbol-loop-after
                 (lw x6 (+ x28 8))
                 (jalr x0 x1)
 
-        unwrap-imm-len
+        assemble-unwrap-imm-len
             (lb x6 x10)
             (subi x6 x6 Token::Symbol)
             (bne x6 x0 assemble-error)
@@ -989,13 +989,13 @@ assemble
             (addi x10 x10 16)
             (ld x28 (+ x2 40))
             (add x29 x0 x24)
-            unwrap-imm-len-loop
+            assemble-unwrap-imm-len-loop
                 (beq x28 x29 assemble-error)
                 (ld x7 x28)
-                (beq x6 x7 unwrap-imm-len-loop-after)
+                (beq x6 x7 assemble-unwrap-imm-len-loop-after)
                 (addi x28 x28 24)
-                (jal x0 unwrap-imm-len-loop)
-            unwrap-imm-len-loop-after
+                (jal x0 assemble-unwrap-imm-len-loop)
+            assemble-unwrap-imm-len-loop-after
                 (lw x6 (+ x28 16))
                 (lb x7 x10)
                 (addi x10 x10 16)
