@@ -690,6 +690,24 @@ assemble
 
         ;; TODO
         assemble-handle-define-vec
+            (beq x11 x10 assemble-error)
+            (lb x6 x10)
+            (addi x10 x10 16)
+            (subi x6 x6 Token::LeftParen)
+            (bne x6 x0 assemble-error)
+
+            assemble-handle-define-vec-loop
+                (beq x11 x10 assemble-error)
+                (lb x6 x10)
+                (ld x7 (+ x10 8))
+                (addi x10 x10 16)
+                (subi x5 x6 Token::RightParen)
+                (beq x5 x0 assemble-handle-define-vec-loop-after
+                (subi x5 x6 Token::Integer)
+                (bne x5 x0 assemble-error)
+
+                (jal x0 assemble-handle-define-vec-loop)
+            assemble-handle-define-vec-loop-after
 
         assemble-handle-define-int
         assemble-handle-define-char
