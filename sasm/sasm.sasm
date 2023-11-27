@@ -889,6 +889,71 @@ assemble
 
     ;; TODO
     assemble-b
+        (addi x5 x0 99)
+
+        ;; funct3
+        (la x7 funct3-table)
+        (add x7 x7 x6)
+        (lb x7 (- x7 Instr::add))
+        (slli x7 x7 12)
+        (or x5 x5 x7)
+        ;; rs1
+        (jal x1 assemble-unwrap-register)
+        (slli x6 x6 15)
+        (or x5 x5 x6)
+        ;; rs2
+        (jal x1 assemble-unwrap-register)
+        (slli x6 x6 20)
+        (or x5 x5 x6)
+
+        ;; label
+        (beq x10 x11 assemble-error)
+        (lb x6 x10)
+        (subi x6 x6 Token::Symbol)
+        (bne x6 x0 assemble-error)
+        (ld x6 (+ x10 8))
+        (addi x10 x10 16)
+        ;; TODO
+;;        (ld x30 (+ x2 _))
+        assemble-b-label-loop
+;;            (beq x30 x__ assemble-b-done)
+            (ld x31 x30)
+            (beq x6 x31 assemble-b-label-loop-after)
+;;            (addi x__ x__ 16)
+            (jal x0 assemble-b-label-loop)
+        assemble-b-label-loop-after
+            (ld x6 (+ x30 8))
+            (sub x6 x6 x7)
+            (slli x6 x6 32)
+            (srli x6 x6 32)
+
+        ;; imm1
+        (add x7 x0 x6)
+        (addi x31 x0 30)
+        (and x7 x7 x31)
+        (srli x31 x6 11)
+        (addi x30 x0 1)
+        (and x31 x31 x30)
+        (or x7 x31 x7)
+        (slli x6 x6 7)
+        (or x5 x6 x5)
+
+        ;; imm2
+        (add x7 x0 x6)
+        (srli x7 x7 6)
+        (addi x31 x0 64)
+        (and x7 x7 x31)
+        (srli x6 x6 5)
+        (addi x31 x0 63)
+        (and x6 x6 x31)
+        (or x6 x6 x7)
+        (slli x6 x6 25)
+        (or x5 x6 x5)
+
+        assemble-b-done
+        (sw x20 x5)
+        (addi x20 x20 4)
+        (jal x0 assemble-after-opcode)
 
     ;; TODO
     assemble-la
