@@ -53,13 +53,11 @@ impl Elf {
                 let offset = data_position[i] as u32;
                 let lui = (&program[p..]).read_u32::<LittleEndian>().unwrap();
                 let addi = (&program[p+4..]).read_u32::<LittleEndian>().unwrap();
-                let mut offset_u = offset & 0xff_ff_f0_00;
-                let offset_l = offset & 0xf_ff;
-                if offset_l & 0x9_00 != 0 {
-                    offset_u += 0x10_00;
-                }
-                let lui = offset_u | lui;
-                let addi = offset_l << 20 | addi;
+                // https://patchwork.kernel.org/project/linux-riscv/patch/20220131182145.236005-3-kernel@esmil.dk/
+                let imm20 = (offset + 0x800) >> 12;
+                let imm12 = offset & 0xfff;
+                let lui = imm20 << 12 | lui;
+                let addi = imm12 << 20 | addi;
                 (&mut program[p..]).write_u32::<LittleEndian>(lui).unwrap();
                 (&mut program[p+4..]).write_u32::<LittleEndian>(addi).unwrap();
             }
