@@ -688,7 +688,6 @@ assemble
                 (beq x7 x0 assemble-handle-define-string-loop-escape-after)
                 (jal x0 assemble-error)
 
-        ;; TODO
         assemble-handle-define-vec
             (beq x11 x10 assemble-error)
             (lb x6 x10)
@@ -696,18 +695,37 @@ assemble
             (subi x6 x6 Token::LeftParen)
             (bne x6 x0 assemble-error)
 
+            ;; add to globals
+            (sw x24 x28)
+            (sd (+ x24 8) x23)
+
+            (add x28 x0 x0)
+
             assemble-handle-define-vec-loop
                 (beq x11 x10 assemble-error)
                 (lb x6 x10)
                 (ld x7 (+ x10 8))
                 (addi x10 x10 16)
                 (subi x5 x6 Token::RightParen)
-                (beq x5 x0 assemble-handle-define-vec-loop-after
+                (beq x5 x0 assemble-handle-define-vec-loop-after)
                 (subi x5 x6 Token::Integer)
                 (bne x5 x0 assemble-error)
 
+                (addi x28 x28 1)
+                (sb x23 x7)
+                (addi x23 x23 1)
+
                 (jal x0 assemble-handle-define-vec-loop)
             assemble-handle-define-vec-loop-after
+            (beq x28 x0 assemble-error)
+            (sd (+ x24 16) x28)
+            (addi x24 x24 24)
+
+            (andi x6 x23 7)
+            (addi x7 x0 8)
+            (sub x7 x7 x6)
+            (bne x6 x0 assemble-handle-define-align)
+            (jal x0 assemble-handle-define-after)
 
         assemble-handle-define-int
         assemble-handle-define-char
