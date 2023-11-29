@@ -1054,11 +1054,27 @@ assemble
     ;; TODO
     assemble-jalr
 
-    ;; TODO
     assemble-lui
+        (addi x5 x0 55)
+    assemble-lui-body
+        ;; rd
+        (jal x1 assemble-unwrap-register)
+        (slli x6 x6 7)
+        (or x5 x5 x6)
+        ;; imm
+        (jal x1 assemble-unwrap-imm)
+        (slli x6 x6 12)
+        (or x5 x5 x6)
 
-    ;; TODO
+        (ld x21 x20)
+        (sw x21 x5)
+        (addi x21 x21 4)
+        (sd x20 x21)
+        (jal x0 assemble-after-opcode)
+
     assemble-auipc
+        (addi x5 x0 23)
+        (jal x0 assemble-lui-body)
 
     assemble-ecall
         (addi x5 x0 115)
