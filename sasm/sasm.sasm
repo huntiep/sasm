@@ -524,39 +524,24 @@ tokenize
 ;;  x10 - tokens: ArrayBuf<(Token, len, start)>
 ;;  x11 - len: tokens.len : pointer to end of tokens
 ;; Locals:
-;;  x20 - output-ptr: ArrayBuf<u32>
-;;  &x2+8 - output-start
-;;  x21 - labels-ptr: ArrayBuf<(Symbol, usize)>
-;;  &x2+16 - labels-start
-;;  x22 - constants-ptr: ArrayBuf<(Symbol, u32, u32-padding)>
-;;  &x2+24 - constants-start
-;;  x23 - data-ptr: ArrayBuf<u8>
-;;  &x2+32 - data-start
-;;  x24 - globals-ptr: ArrayBuf<(Symbol, data-offset, len)>
-;;  &x2+40 - globals-start
-;;  x25 - include!-stack-ptr: ArrayBuf<(*tokens, *tokens.len)>
-;;  x26 - include!-stack-start
-;;  x27 - jumps-ptr: ArrayBuf<(Symbol, )>
-;;  &x2+48 - jumps-start
-
-;; x20  - struct {
-;; +0   - output-ptr: ArrayBuf<u32>
-;; +8   - output-start
-;; +16  - data-ptr: ArrayBuf<(Symbol, u32, u32-padding)>
-;; +24  - data-start
-;; +32  - rewrite-ptr: ArrayBuf<(Symbol, u32, u32-padding)>
-;; +40  - rewrite-start
-;; +48  - labels-ptr: ArrayBuf<(Symbol, usize)>
-;; +56  - labels-start
-;; +64  - constants-ptr: ArrayBuf<(Symbol, u32, u32-padding)>
-;; +72  - constants-start
-;; +80  - globals-ptr: ArrayBuf<(Symbol, data-offset, len)>
-;; +88  - globals-start
-;; +96  - jumps-ptr: ArrayBuf<(Symbol, _)>
-;; +104 - jumps-start
-;; +112  - include!-stack-ptr: ArrayBuf<(*tokens, *tokens.len)>
-;; +120 - include!-stack-start
-;; 128  - }
+;;  x20  - struct {
+;;  +0   - output-ptr: ArrayBuf<u32>
+;;  +8   - output-start
+;;  +16  - data-ptr: ArrayBuf<(Symbol, u32, u32-padding)>
+;;  +24  - data-start
+;;  +32  - rewrite-ptr: ArrayBuf<(Symbol, u32, u32-padding)>
+;;  +40  - rewrite-start
+;;  +48  - labels-ptr: ArrayBuf<(Symbol, usize)>
+;;  +56  - labels-start
+;;  +64  - constants-ptr: ArrayBuf<(Symbol, u32, u32-padding)>
+;;  +72  - constants-start
+;;  +80  - globals-ptr: ArrayBuf<(Symbol, data-offset, len)>
+;;  +88  - globals-start
+;;  +96  - jumps-ptr: ArrayBuf<(Symbol, _)>
+;;  +104 - jumps-start
+;;  +112  - include!-stack-ptr: ArrayBuf<(*tokens, *tokens.len)>
+;;  +120 - include!-stack-start
+;;  128  - }
 assemble
     (subi x2 x2 24)
     (sd x2 x10)
