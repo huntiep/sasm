@@ -976,8 +976,10 @@ assemble
         (slli x6 x6 20)
         (or x5 x5 x6)
 
-        (sw x20 x5)
-        (addi x20 x20 4)
+        (ld x21 x20)
+        (sw x21 x5)
+        (addi x21 x21 4)
+        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
         assemble-r-funct7-sub
@@ -1008,8 +1010,10 @@ assemble
         (slli x6 x6 20)
         (or x5 x5 x6)
 
-        (sw x20 x5)
-        (addi x20 x20 4)
+        (ld x21 x20)
+        (sw x21 x5)
+        (addi x21 x21 4)
+        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     ;; TODO
@@ -1082,8 +1086,10 @@ assemble
         (or x5 x6 x5)
 
         assemble-b-done
-        (sw x20 x5)
-        (addi x20 x20 4)
+        (ld x21 x20)
+        (sw x21 x5)
+        (addi x21 x21 4)
+        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     ;; TODO
@@ -1103,8 +1109,10 @@ assemble
 
     assemble-ecall
         (addi x5 x0 115)
-        (sw x20 x5)
-        (addi x20 x20 4)
+        (ld x21 x20)
+        (sw x21 x5)
+        (addi x21 x21 4)
+        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     assemble-ebreak
@@ -1112,8 +1120,10 @@ assemble
         (addi x6 x0 1)
         (slli x6 x0 12)
         (or x5 x5 x6)
-        (sw x20 x5)
-        (addi x20 x20 4)
+        (ld x21 x20)
+        (sw x21 x5)
+        (addi x21 x21 4)
+        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     assemble-after-opcode
@@ -1157,8 +1167,8 @@ assemble
 
         assemble-unwrap-imm-symbol
             (ld x6 (- x10 8))
-            (ld x28 (+ x2 24))
-            (add x29 x0 x22)
+            (ld x28 (+ x20 72))
+            (ld x29 (+ x20 64))
             assemble-unwrap-imm-symbol-loop
                 (beq x28 x29 assemble-error)
                 (ld x7 x28)
@@ -1183,8 +1193,8 @@ assemble
             (bne x6 x0 assemble-error)
             (ld x6 (+ x10 8))
             (addi x10 x10 16)
-            (ld x28 (+ x2 40))
-            (add x29 x0 x24)
+            (ld x28 (+ x20 88))
+            (ld x29 (+ x20 80))
             assemble-unwrap-imm-len-loop
                 (beq x28 x29 assemble-error)
                 (ld x7 x28)
@@ -1210,21 +1220,33 @@ assemble
         (jal x0 assemble-loop)
     assemble-after-loop-free
         ;; Free memory
-        ;; TODO: free x20 struct and members, saving code, data, and rewrites
-        (ld x10 (+ x2 16))
+        (ld x10 (+ x20 56))
         (jal x1 free)
-        (ld x10 (+ x2 24))
+        (ld x10 (+ x20 72))
         (jal x1 free)
-        (ld x10 (+ x2 40))
+        (ld x10 (+ x20 88))
+        (jal x1 free)
+        (ld x10 (+ x20 104))
+        (jal x1 free)
+        (ld x10 (+ x20 120))
         (jal x1 free)
 
-        (ld x10 (+ x2 8))
-        (add x11 x0 x20)
-        (ld x12 (+ x2 32))
-        (add x13 x0 x23)
-
+        (ld x21 (+ x20 8))
+        (ld x22 x20)
+        (ld x23 (+ x20 24))
+        (ld x24 (+ x20 16))
+        (ld x25 (+ x20 40))
+        (ld x26 (+ x20 32))
+        (add x10 x0 x20)
+        (jal x1 free)
+        (add x10 x0 x21)
+        (add x11 x0 x22)
+        (add x12 x0 x23)
+        (add x13 x0 x24)
+        (add x14 x0 x25)
+        (add x15 x0 x26)
         (ld x1 x2)
-        (addi x2 x2 48)
+        (addi x2 x2 8)
         (jalr x0 x1)
     assemble-error
         (addi x10 x0 30)
