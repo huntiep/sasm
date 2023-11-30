@@ -956,10 +956,40 @@ assemble
     ;; TODO
     assemble-i2
 
-    ;; TODO
     assemble-s
+        (addi x5 x0 35)
+        ;; funct3
+        (la x7 funct3-table)
+        (add x7 x7 x6)
+        (lb x7 (- x7 Instr::add))
+        (slli x7 x7 12)
+        (or x5 x5 x7)
 
-    ;; TODO
+        ;; (rs1, imm)
+        (jal x1 assemble-unwrap-offset)
+        (slli x6 x6 15)
+        (or x5 x5 x6)
+        ;; (imm >> 5) << 25
+        (srai x6 x7 5)
+        (slli x6 x6 25)
+        (or x5 x5 x6)
+        ;; (imm & 0b11111) << 7
+        (addi x6 x0 31)
+        (and x6 x7 x6)
+        (slli x6 x6 7)
+        (or x5 x5 x6)
+
+        ;; rd
+        (jal x1 assemble-unwrap-register)
+        (slli x6 x6 20)
+        (or x5 x5 x6)
+
+        (ld x21 x20)
+        (sw x21 x5)
+        (addi x21 x21 4)
+        (sd x20 x21)
+        (jal x0 assemble-after-opcode)
+
     assemble-b
         (addi x5 x0 99)
 
@@ -980,6 +1010,7 @@ assemble
 
         ;; label
         (jal x1 assemble-unwrap-label)
+        (beq x6 x0 assemble-b-done)
 
         ;; imm1
         (add x7 x0 x6)
@@ -1022,6 +1053,7 @@ assemble
         (or x5 x5 x6)
 
         (jal x1 unwrap-label)
+        (beq x6 x0 assemble-jal-done)
 
         ;; (imm & 0x10_00_00) >> 1
         (addi x29 x0 1)
@@ -1050,6 +1082,7 @@ assemble
         (slli x6 x6 12)
         (or x5 x5 x6)
 
+        assemble-jal-done
         (ld x21 x20)
         (sw x21 x5)
         (addi x21 x21 4)
