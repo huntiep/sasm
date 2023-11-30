@@ -1359,6 +1359,81 @@ assemble
         (ld x11 (+ x25 8))
         (jal x0 assemble-loop)
     assemble-after-loop-free
+        ;; replace jumps
+        (ld x21 (+ x20 104))
+        (ld x22 (+ x20 96))
+        (ld x24 (+ x20 48))
+        (ld x25 (+ x20 8))
+        assemble-after-loop-free-jumps
+            (beq x21 x22 assemble-after-loop-free-jumps-after)
+            (ld x6 x21)
+            (ld x23 (+ x20 56))
+            assemble-after-loop-free-loop
+                (beq x23 x24 assemble-error)
+                (ld x7 x23)
+                (beq x6 x7 assemble-after-loop-free-loop-after)
+                (addi x23 x23 16)
+                (jal x0 assemble-after-loop-free-loop)
+            assemble-after-loop-free-loop-after
+                (ld x6 (+ x23 8))
+                (andi x7 x6 1)
+                (srai x6 x6 1)
+                (ld x5 (+ x21 8))
+                (add x28 x25 x5)
+                (lw x29 x28)
+                (sub x5 x5 x6)
+                (beq x7 x0 assemble-after-loop-free-b)
+                ;; j
+                ;; (imm & 0x10_00_00) >> 1
+                (addi x31 x0 1)
+                (slli x31 x0 20)
+                (and x31 x5 x31)
+                (srai x31 x31 1)
+
+                ;;(imm >> 1) & 0x3ff) << 9
+                (srai x6 x5 1)
+                (addi x7 x0 1023)
+                (and x6 x6 x7)
+                (slli x6 x6 9)
+                (or x31 x31 x6)
+
+                ;; ((imm >> 11) & 1) << 8
+                (srai x6 x5 11)
+                (andi x6 x6 1)
+                (slli x6 x6 8)
+                (or x31 x31 x6)
+
+                ;; (imm >> 12) & 0xff
+                (srai x6 x5 12)
+                (andi x6 x6 255)
+                (or x31 x31 x6)
+                (slli x31 x31 12)
+                (or x29 x31 x29)
+                (jal x0 assemble-after-loop-free-after-rewrite)
+
+            assemble-after-loop-free-b
+                ;; imm1
+                (addi x31 x0 30)
+                (and x7 x5 x31)
+                (srli x31 x5 11)
+                (andi x31 x31 1)
+                (or x7 x31 x7)
+                (slli x7 x7 7)
+                (or x29 x7 x29)
+                ;; imm2
+                (srli x7 x5 6)
+                (andi x7 x7 64)
+                (srli x6 x5 5)
+                (andi x6 x6 63)
+                (or x6 x6 x7)
+                (slli x6 x6 25)
+                (or x29 x6 x29)
+            assemble-after-loop-free-after-rewrite
+                (sw x28 x29)
+                (addi x21 x21 16)
+                (jal x0 assemble-after-loop-free-jumps)
+
+        assemble-after-loop-free-after
         ;; Free memory
         (ld x10 (+ x20 56))
         (jal x1 free)
