@@ -912,11 +912,6 @@ assemble
         (jal x1 assemble-unwrap-register)
         (slli x6 x6 20)
         (or x5 x5 x6)
-
-        (ld x21 x20)
-        (sw x21 x5)
-        (addi x21 x21 4)
-        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
         assemble-r-funct7-sub
@@ -946,11 +941,6 @@ assemble
         (jal x1 assemble-unwrap-imm)
         (slli x6 x6 20)
         (or x5 x5 x6)
-
-        (ld x21 x20)
-        (sw x21 x5)
-        (addi x21 x21 4)
-        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     assemble-i2
@@ -973,11 +963,6 @@ assemble
         (or x5 x5 x6)
         (slli x6 x7 20)
         (or x5 x5 x6)
-
-        (ld x21 x20)
-        (sw x21 x5)
-        (addi x21 x21 4)
-        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     assemble-s
@@ -1007,11 +992,6 @@ assemble
         (jal x1 assemble-unwrap-register)
         (slli x6 x6 20)
         (or x5 x5 x6)
-
-        (ld x21 x20)
-        (sw x21 x5)
-        (addi x21 x21 4)
-        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     assemble-b
@@ -1034,7 +1014,7 @@ assemble
 
         ;; label
         (jal x1 assemble-unwrap-label)
-        (beq x6 x0 assemble-b-done)
+        (beq x6 x0 assemble-after-opcode)
 
         ;; imm1
         (add x7 x0 x6)
@@ -1058,12 +1038,6 @@ assemble
         (or x6 x6 x7)
         (slli x6 x6 25)
         (or x5 x6 x5)
-
-        assemble-b-done
-        (ld x21 x20)
-        (sw x21 x5)
-        (addi x21 x21 4)
-        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     ;; TODO
@@ -1077,7 +1051,7 @@ assemble
         (or x5 x5 x6)
 
         (jal x1 unwrap-label)
-        (beq x6 x0 assemble-jal-done)
+        (beq x6 x0 assemble-after-opcode)
 
         ;; (imm & 0x10_00_00) >> 1
         (addi x29 x0 1)
@@ -1105,12 +1079,6 @@ assemble
 
         (slli x6 x6 12)
         (or x5 x5 x6)
-
-        assemble-jal-done
-        (ld x21 x20)
-        (sw x21 x5)
-        (addi x21 x21 4)
-        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     assemble-jalr
@@ -1125,11 +1093,6 @@ assemble
         (or x5 x5 x6)
         (slli x7 x7 20)
         (or x5 x5 x7)
-
-        (ld x21 x20)
-        (sw x21 x5)
-        (addi x21 x21 4)
-        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     assemble-lui
@@ -1143,11 +1106,6 @@ assemble
         (jal x1 assemble-unwrap-imm)
         (slli x6 x6 12)
         (or x5 x5 x6)
-
-        (ld x21 x20)
-        (sw x21 x5)
-        (addi x21 x21 4)
-        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     assemble-auipc
@@ -1156,10 +1114,6 @@ assemble
 
     assemble-ecall
         (addi x5 x0 115)
-        (ld x21 x20)
-        (sw x21 x5)
-        (addi x21 x21 4)
-        (sd x20 x21)
         (jal x0 assemble-after-opcode)
 
     assemble-ebreak
@@ -1167,13 +1121,14 @@ assemble
         (addi x6 x0 1)
         (slli x6 x0 12)
         (or x5 x5 x6)
+        (jal x0 assemble-after-opcode)
+
+    assemble-after-opcode
         (ld x21 x20)
         (sw x21 x5)
         (addi x21 x21 4)
         (sd x20 x21)
-        (jal x0 assemble-after-opcode)
 
-    assemble-after-opcode
         (beq x10 x11 assemble-error)
         (lb x6 x10)
         (subi x6 x6 Token::RightParen)
