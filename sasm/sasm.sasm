@@ -1178,6 +1178,73 @@ assemble
                 (bne x7 x0 assemble-error)
                 (jalr x0 x1)
 
+    assemble-unwrap-offset
+        (beq x10 x11 assemble-error)
+        (lb x6 x10)
+        (subi x7 x6 Token::Symbol)
+        (beq x7 x0 assemble-unwrap-register)
+        (subi x7 x6 Token::LeftParen)
+        (bne x7 x0 assemble-error)
+        (addi x10 x10 16)
+
+        (beq x10 x11 assemble-error)
+        (lb x6 x10)
+        (subi x7 x6 Token::Symbol)
+        (bne x7 x0 assemble-error)
+        (ld x6 (+ x10 8))
+        (addi x10 x10 16)
+        (addi x25 x0 1)
+        (subi x7 x6 Instr::+)
+        (beq x7 x0 assemble-unwrap-offset-after-negate)
+        (addi x25 x0 -1)
+        (subi x7 x6 Instr::-)
+        (bne x7 x0 assemble-error)
+
+        assemble-unwrap-offset-after-negate
+        (subi x2 x2 8)
+        (sd x2 x1)
+
+        (beq x10 x11 assemble-error)
+        (lb x6 x10)
+        (subi x7 x6 Token::Symbol)
+        (beq x7 x0 assemble-unwrap-offset-reg-first)
+
+        (subi x7 x6 Token::Integer)
+        (bne x7 x0 assemble-error)
+        (jal x1 assemble-unwrap-imm)
+        (add x27 x0 x6)
+        (jal x1 assemble-unwrap-register)
+        (add x7 x0 x27)
+        (jal x0 assemble-unwrap-offset-after)
+
+        assemble-unwrap-offset-reg-first
+        (lb x6 (+ x10 8))
+        (subi x7 x6 Register::x31)
+        (subi x7 x7 1)
+        (bge x7 x0 assemble-unwrap-offset-reg-first-constant)
+        (addi x10 x10 16)
+        (subi x26 x6 1)
+        (jal x1 assemble-unwrap-imm)
+        (add x27 x0 x6)
+        (jal x0 assemble-unwrap-offset-after)
+
+        assemble-unwrap-offset-reg-first-constant
+        (jal x1 assemble-unwrap-imm)
+        (add x27 x0 x6)
+        (jal x1 assemble-unwrap-reg)
+        (add x26 x0 x6)
+
+        assemble-unwrap-offset-after
+        (beq x10 x11 assemble-error)
+        (lb x6 x10)
+        (subi x6 x6 Token::RightParen)
+        (bne x6 x0 assemble-error)
+        (addi x10 x10 16)
+        (mul x27 x27 x25)
+        (ld x1 x2)
+        (addi x2 x2 8)
+        (jalr x0 x1)
+
     assemble-after-loop
         (ld x25 (+ x20 112))
         (ld x26 (+ x20 120))
