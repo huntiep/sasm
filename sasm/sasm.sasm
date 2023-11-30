@@ -979,41 +979,7 @@ assemble
         (or x5 x5 x6)
 
         ;; label
-        (beq x10 x11 assemble-error)
-        (lb x6 x10)
-        (subi x6 x6 Token::Symbol)
-        (bne x6 x0 assemble-error)
-        (ld x6 (+ x10 8))
-        (addi x10 x10 16)
-        (ld x28 (+ x20 56))
-        (ld x29 (+ x20 48))
-        assemble-b-label-loop
-            (beq x28 x29 assemble-b-add-jump)
-            (ld x30 x28)
-            (beq x6 x30 assemble-b-label-loop-after)
-            (addi x28 x28 16)
-            (jal x0 assemble-b-label-loop)
-        assemble-b-add-jump
-            (ld x28 (+ x20 96))
-            (sd x28 x6)
-            (ld x29 x20)
-            (ld x30 (+ x20 8))
-            (sub x29 x29 x30)
-            (slli x29 x29 1)
-            (ori x29 x29 1)
-            (sd (+ x28 8) x29)
-            (addi x28 x28 16)
-            (sd (+ x20 96) x28)
-            (jal x0 assemble-b-done)
-        assemble-b-label-loop-after
-            (ld x6 (+ x28 8))
-            (ld x28 x20)
-            (ld x29 (+ x20 8))
-            (sub x28 x28 x29)
-            (sub x6 x6 x28)
-            ;; 0 upper 32 bits
-            (slli x6 x6 32)
-            (srli x6 x6 32)
+        (jal x1 assemble-unwrap-label)
 
         ;; imm1
         (add x7 x0 x6)
@@ -1118,6 +1084,44 @@ assemble
         (bne x6 x0 assemble-error)
         (addi x10 x10 16)
         (jal x0 assemble-loop)
+
+    assemble-unwrap-label
+        (beq x10 x11 assemble-error)
+        (lb x6 x10)
+        (subi x6 x6 Token::Symbol)
+        (bne x6 x0 assemble-error)
+        (ld x6 (+ x10 8))
+        (addi x10 x10 16)
+        (ld x28 (+ x20 56))
+        (ld x29 (+ x20 48))
+        assemble-unwrap-label-loop
+            (beq x28 x29 assemble-unwrap-add-jump)
+            (ld x30 x28)
+            (beq x6 x30 assemble-unwrap-label-loop-after)
+            (addi x28 x28 16)
+            (jal x0 assemble-unwrap-label-loop)
+        assemble-unwrap-add-jump
+            (ld x28 (+ x20 96))
+            (sd x28 x6)
+            (ld x29 x20)
+            (ld x30 (+ x20 8))
+            (sub x29 x29 x30)
+            (slli x29 x29 1)
+            (ori x29 x29 1)
+            (sd (+ x28 8) x29)
+            (addi x28 x28 16)
+            (sd (+ x20 96) x28)
+            (jal x0 assemble-b-done)
+        assemble-unwrap-label-loop-after
+            (ld x6 (+ x28 8))
+            (ld x28 x20)
+            (ld x29 (+ x20 8))
+            (sub x28 x28 x29)
+            (sub x6 x6 x28)
+            ;; 0 upper 32 bits
+            (slli x6 x6 32)
+            (srli x6 x6 32)
+            (jalr x0 x1)
 
     assemble-unwrap-register
         (beq x10 x11 assemble-error)
