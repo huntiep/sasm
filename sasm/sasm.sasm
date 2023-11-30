@@ -1013,6 +1013,7 @@ assemble
         (or x5 x5 x6)
 
         ;; label
+        (addi x31 x0 1)
         (jal x1 assemble-unwrap-label)
         (beq x6 x0 assemble-after-opcode)
 
@@ -1086,19 +1087,20 @@ assemble
         (slli x6 x6 7)
         (or x5 x5 x6)
 
-        (jal x1 unwrap-label)
+        (add x31 x0 x0)
+        (jal x1 assemble-unwrap-label)
         (beq x6 x0 assemble-after-opcode)
 
         ;; (imm & 0x10_00_00) >> 1
         (addi x29 x0 1)
-        (slli x29 x0 20
+        (slli x29 x0 20)
         (and x28 x6 x29)
         (srai x28 x28 1)
 
         ;;(imm >> 1) & 0x3ff) << 9
         (srai x29 x6 1)
         (addi x30 x0 1023)
-        (and x29 x39 x30)
+        (and x29 x29 x30)
         (slli x29 x29 9)
         (or x28 x28 x29)
 
@@ -1194,7 +1196,7 @@ assemble
             (ld x30 (+ x20 8))
             (sub x29 x29 x30)
             (slli x29 x29 1)
-            (ori x29 x29 1)
+            (or x29 x29 x31)
             (sd (+ x28 8) x29)
             (addi x28 x28 16)
             (sd (+ x20 96) x28)
