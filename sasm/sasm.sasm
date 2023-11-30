@@ -529,7 +529,7 @@ tokenize
 ;;  +8   - output-start
 ;;  +16  - data-ptr: ArrayBuf<u8>
 ;;  +24  - data-start
-;;  +32  - rewrite-ptr: ArrayBuf<(Symbol, usize)>
+;;  +32  - rewrite-ptr: ArrayBuf<(output-ptr[i], usize)>
 ;;  +40  - rewrite-start
 ;;  +48  - labels-ptr: ArrayBuf<(Symbol, usize)>
 ;;  +56  - labels-start
@@ -1040,8 +1040,44 @@ assemble
         (or x5 x6 x5)
         (jal x0 assemble-after-opcode)
 
-    ;; TODO
     assemble-la
+        ;; rd
+        (jal x1 assemble-unwrap-register)
+        (beq x10 11 assemble-error)
+        (lb x7 x10)
+        (subi x7 x7 Token::Symbol)
+        (bne x7 x0 assemble-error)
+        (ld x7 (+ x10 8))
+        (addi x10 x10 16)
+        (ld x21 (+ x20 88))
+        (ld x22 (+ x20 80))
+        assemble-la-global-loop
+            (beq x21 x22 assemble-error)
+            (ld x28 x21)
+            (beq x28 x7 assemble-la-global-loop-after)
+            (addi x21 x21 24)
+            (jal x0 assemble-la-global-loop)
+        assemble-la-global-loop-after
+            (ld x7 (+ x21 8))
+            (ld x21 (+ x20 32))
+            (ld x22 x20)
+            (sd x21 x22)
+            (sd (+ x21 8) x7)
+            (sd (+ x20 32) x21)
+            ;; lui
+            (addi x5 x0 55)
+            (slli x7 x6 7)
+            (or x5 x5 x7)
+            (ld x21 x20)
+            (sw x21 x5)
+            (addi x21 x21 4)
+            (sd x20 x21)
+            ;; addi
+            (addi x5 x0 19)
+            (or x5 x5 x7)
+            (slli x7 x6 15)
+            (or x5 x5 x7)
+            (jal x0 assemble-after-opcode)
 
     assemble-jal
         (addi x5 x0 111)
