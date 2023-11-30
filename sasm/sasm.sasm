@@ -1051,8 +1051,24 @@ assemble
     ;; TODO
     assemble-jal
 
-    ;; TODO
     assemble-jalr
+        (addi x5 x0 103)
+        ;; rd
+        (jal x1 assemble-unwrap-register)
+        (slli x6 x6 7)
+        (or x5 x5 x6)
+        ;; (rs, imm)
+        (jal x1 assemble-unwrap-offset)
+        (slli x6 x6 15)
+        (or x5 x5 x6)
+        (slli x7 x7 20)
+        (or x5 x5 x7)
+
+        (ld x21 x20)
+        (sw x21 x5)
+        (addi x21 x21 4)
+        (sd x20 x21)
+        (jal x0 assemble-after-opcode)
 
     assemble-lui
         (addi x5 x0 55)
