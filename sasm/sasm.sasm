@@ -1014,8 +1014,47 @@ assemble
     ;; TODO
     assemble-la
 
-    ;; TODO
     assemble-jal
+        (addi x5 x0 111)
+        ;; rd
+        (jal x1 assemble-unwrap-register)
+        (slli x6 x6 7)
+        (or x5 x5 x6)
+
+        (jal x1 unwrap-label)
+
+        ;; (imm & 0x10_00_00) >> 1
+        (addi x29 x0 1)
+        (slli x29 x0 20
+        (and x28 x6 x29)
+        (srai x28 x28 1)
+
+        ;;(imm >> 1) & 0x3ff) << 9
+        (srai x29 x6 1)
+        (addi x30 x0 1023)
+        (and x29 x39 x30)
+        (slli x29 x29 9)
+        (or x28 x28 x29)
+
+        ;; ((imm >> 11) & 1) << 8
+        (srai x29 x6 11)
+        (andi x29 x29 1)
+        (slli x29 x29 8)
+        (or x28 x28 x29)
+
+        ;; (imm >> 12) & 0xff
+        (srai x29 x6 12)
+        (andi x29 x29 255)
+        (or x6 x28 x29)
+
+        (slli x6 x6 12)
+        (or x5 x5 x6)
+
+        (ld x21 x20)
+        (sw x21 x5)
+        (addi x21 x21 4)
+        (sd x20 x21)
+        (jal x0 assemble-after-opcode)
 
     assemble-jalr
         (addi x5 x0 103)
