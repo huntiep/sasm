@@ -95,7 +95,12 @@ impl Assembler {
     }
 
     pub fn label<S: Into<String>>(&mut self, label: S) {
-        self.labels.insert(label.into(), self.emitter.len());
+        let label = label.into();
+        if self.labels.contains_key(&label) {
+            panic!("Duplicate label `{}`", label);
+        } else {
+            self.labels.insert(label, self.emitter.len());
+        }
     }
 
     #[inline]
