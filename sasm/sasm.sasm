@@ -1492,12 +1492,14 @@ assemble
         (addi x17 x0 SYS_EXIT)
         (ecall)
 
-;; x10 - &program
-;; x11 - program.len
-;; x12 - &data (len, &data)
-;; x13 - data.len
-;; x14 - &rewrites (program_index, data_index)
-;; x15 - rewrites.len
+;; INPUT:
+;;  x10 - program-ptr: ArrayBuf<u32>
+;;  x11 - program-end
+;;  x12 - data-ptr: ArrayBuf<u8>
+;;  x13 - data-end
+;;  x14 - rewrite-ptr: ArrayBuf<(program-ptr[i], usize)>
+;;  x15 - rewrite-end
+;;  x16 - Output fd
 ;; Locals
 ;;   x20 - elf output buffer
 ;;   x21 - data_offset
@@ -1506,87 +1508,12 @@ assemble
 ;;   x24 - &data_position (offset)
 ;;   x25 - elf output buffer beginning
 elf
+    ;; 0x400000
+    (define Elf::ENTRY_LOCATION 4194304)
     ;; 0x600000
     (define Elf::DATA_LOCATION 6291456)
     ;; 64 + 56 + 56
-    (define Elf::data_offset 176)
-
-    ;; Allocate 64k for exe output
-    (sd (- 8 x2) x10)
-    (sd (- 16 x2) x1)
-    (addi x10 x0 1)
-    (slli x10 x10 16)
-    (jal x1 malloc)
-    (add x20 x0 x10)
-    (add x20 x0 x10)
-    (ld x10 (- x2 8))
-    (ld x1 (- x2 16))
-
-    (sub x21 x11 x10)
-    (addi x21 x21 Elf::data_offset)
-
-    (add x28 x0 x13)
-    (sub x31 x2 x28)
-    (sub x24 x2 x28)
-    (add x29 x0 x12)
-    (add x22 x0 x0)
-    (beq x28 x0 elf-get-data-len-loop-after)
-    ;; 0x600000
-    (addi x6 x0 6)
-    (slli x6 x6 20)
-    (add x6 x21 x6)
-    elf-get-data-len-loop
-        (ld x30 x29)
-        (add x22 x22 x30)
-        (addi x29 x29 16)
-        (subi x13 x0 1)
-        (sd x31 x6)
-        (add x6 x6 x30)
-        (addi x31 x31 8)
-        (bne x28 x0 elf-get-data-len-loop)
-    elf-get-data-len-loop-after
-    (add x23 x21 x30)
-
-    elf-rewrites
-        (beq x15 x0 elf-write-ehdr)
-        (ld x28 x14)
-        (add x28 x28 x10)
-        (ld x29 (+ x14 8))
-        (add x6 x0 x24)
-        elf-rewrites-mult
-            (beq x29 x0 elf-rewrites-mult-after)
-            (addi x6 x6 8)
-            (subi x29 x29 1)
-            (jal x0 elf-rewrites-mult)
-        elf-rewrites-mult-after
-        ;; offset
-        (ld x6 x6)
-        ;; lui
-        (lw x30 x28)
-        ;; 0xff_ff_f0_00
-        ;(addi x7 x0 65535)
-        ;(slli x7 x7 16)
-        ;(addi x7 x7 61440)
-        ;(and x7 x6 x7)
-        (srai x7 x6 12)
-        (slli x7 x7 12)
-        (or x30 x30 x7)
-        (sw x28 x30)
-        ;; addi
-        (lw x30 (+ x28 4))
-        ;; 0xf_ff
-        (addi x7 x0 15)
-        (slli x7 x7 8)
-        (addi x7 x7 255)
-        (and x7 x6 x7)
-        (slli x7 x7 20)
-        (or x30 x30 x7)
-        (sw (+ x28 4) x30)
-        (addi x14 x14 16)
-        (subi x15 x15 1)
-        (jal x0 elf-rewrites)
-
-    elf-write-ehdr
+    (define Elf::program_offset 176)
     (define elf-ehdr #(127 69 76 70 2 1 1 0 0 0 0 0 0 0 0 0
                        2 0 ;; e_type
                        243 0 ;; e_machine
@@ -1601,79 +1528,124 @@ elf
                        64 0 ;; e_shentsize
                        0 0 ;; e_num
                        0 0)) ;; e_shstrndx
-        (addi x6 x0 8)
-        (la x7 elf-ehdr)
-        elf-write-ehdr-loop
-            (ld x8 x7)
-            (sd x20 x7)
-            (addi x20 x20 8)
-            (addi x7 x7 8)
-            (subi x6 x6 1)
-            (bne x6 x0 elf-write-ehdr-loop)
 
-    elf-write-phdrs
-        (define elf-phdr-text #(1 0 0 0
-                                5 0 0 0
-                                0 0 0 0 0 0 0 0
-                                0 0 64 0 0 0 0 0
-                                0 0 64 0 0 0 0 0
-                                0 0 0 0 0 0 0 0
-                                0 0 0 0 0 0 0 0
-                                0 16 0 0 0 0 0 0))
+    (define elf-phdr-text #(1 0 0 0 ;; p_type
+                            5 0 0 0 ;; p_flags
+                            0 0 0 0 0 0 0 0 ;; p_offset = 0
+                            0 0 64 0 0 0 0 0 ;; p_vaddr = ENTRY_LOCATION
+                            0 0 64 0 0 0 0 0 ;; p_paddr = ENTRY_LOCATION
+                            0 0 0 0 0 0 0 0 ;; p_filesz
+                            0 0 0 0 0 0 0 0 ;; p_memsz
+                            0 16 0 0 0 0 0 0)) ;; p_align
 
-        (define elf-phdr-data #(1 0 0 0
-                                6 0 0 0
-                                0 0 0 0 0 0 0 0
-                                0 0 96 0 0 0 0 0
-                                0 0 96 0 0 0 0 0
-                                0 0 0 0 0 0 0 0
-                                0 0 0 0 0 0 0 0
-                                0 16 0 0 0 0 0 0))
-        (addi x6 x0 7)
-        (la x7 elf-phdr-text)
-        elf-write-phdrs-text-loop
-            (ld x8 x7)
-            (sd x20 x7)
-            (addi x20 x20 8)
-            (addi x7 x7 8)
-            (subi x6 x6 1)
-            (bne x6 x0 elf-write-phdrs-text-loop)
-            (sd (- x20 24) x21)
-            (sd (- x20 16) x21)
+    (define elf-phdr-data #(1 0 0 0 ;; p_type
+                            6 0 0 0 ;; p_flags
+                            0 0 0 0 0 0 0 0 ;; p_offset
+                            0 0 0 0 0 0 0 0 ;; p_vaddr
+                            0 0 0 0 0 0 0 0 ;; p_paddr
+                            0 0 0 0 0 0 0 0 ;; p_filesz
+                            0 0 0 0 0 0 0 0 ;; p_memsz
+                            0 16 0 0 0 0 0 0)) ;; p_align
 
-        (addi x6 x0 7)
-        (la x7 elf-phdr-data)
-        elf-write-phdrs-data-loop
-            (ld x8 x7)
-            (sd x20 x7)
-            (addi x20 x20 8)
-            (addi x7 x7 8)
-            (subi x6 x6 1)
-            (bne x6 x0 elf-write-phdrs-data-loop)
-            (sd (- x20 24) x22)
-            (sd (- x20 16) x22)
+    (add x20 x0 x10)
+    (add x21 x0 x11)
+    (add x22 x0 x12)
+    (add x23 x0 x13)
+    (add x24 x0 x14)
+    (add x25 x0 x15)
+    (add x26 x0 x16)
 
-    elf-write-program
-        (lw x6 x10)
-        (sw x20 x6)
-        (addi x10 x10 4)
-        (addi x20 x20 4)
-        (bne x10 x11 elf-write-program)
-    elf-write-data
-        (beq x13 x0 elf-write-program)
-        (ld x28 x12)
-        (ld x29 (+ 8 x12))
-        elf-write-data-inner
-            (lb x30 x29)
-            (sb x20 x30)
-            (addi x20 x20 1)
-            (addi x29 x29 1)
-            (subi x28 x28 1)
-            (bne x28 x0 elf-write-data-inner)
-        (addi x12 x12 16)
-        (subi x13 x13 1)
-        (jal x0 elf-write-data)
-    elf-after
-        (add x10 x0 x20)
-        (add x11 x0 x20)
-        (jalr x0 x1)
+    (andi x5 x21 7)
+    (beq x5 x0 elf-rewrite)
+    (sw x21 x0)
+    (addi x21 x21 4)
+
+    elf-rewrite
+    (sub x31 x21 x20)
+    (addi x31 x31 Elf::program_offset)
+    (addi x30 x0 96)
+    (slli x30 x30 16)
+    (add x31 x31 x30)
+    elf-rewrite-loop
+        (beq x24 x25 elf-rewrite-done)
+        (ld x5 x24)
+        (ld x6 (+ x24 8))
+        (addi x24 x24 16)
+        ;;offset
+        (sub x6 x6 x22)
+        (add x6 x6 x31)
+        ;; imm20
+        (addi x30 x0 1)
+        (slli x30 x30 11)
+        (add x7 x6 x30)
+        (srai x7 x7 12)
+        (slli x7 x7 12)
+        ;; imm12
+        (addi x30 x0 255)
+        (slli x30 x30 4)
+        (addi x30 x30 15)
+        (and x6 x6 x30)
+        (slli x6 x6 20)
+        ;; lui
+        (lw x30 x5)
+        (or x30 x30 x7)
+        (sw x5 x30)
+        ;; addi
+        (lw x30 (+ x5 4))
+        (or x30 x30 x6)
+        (sw (+ x5 4) x30)
+        (jal x0 elf-rewrite-loop)
+    elf-rewrite-done
+
+    ;; ehdr
+    ;; write(fd, msg, len)
+    (add x10 x0 x26)
+    (la x11 elf-ehdr)
+    (addi x12 x0 (len elf-ehdr))
+    (addi x17 x0 SYS_WRITE)
+    (ecall)
+
+    ;; phdrs
+    (la x11 elf-phdr-text)
+    (addi x5 x21 Elf::program_offset)
+    (sub x5 x5 x20)
+    (sd (+ x11 32) x5)
+    (sd (+ x11 40) x5)
+
+    ;; write(fd, msg, len)
+    (add x10 x0 x26)
+    (addi x12 x0 (len elf-phdr-text))
+    (addi x17 x0 SYS_WRITE)
+    (ecall)
+
+    (la x11 elf-phdr-data)
+    (sd (+ x11 8) x5)
+    (addi x6 x0 96)
+    (slli x6 x6 16)
+    (add x5 x5 x6)
+    (sd (+ x11 16) x5)
+    (sd (+ x11 24) x5)
+    (sub x5 x23 x22)
+    (sd (+ x11 32) x5)
+    (sd (+ x11 40) x5)
+
+    ;; write(fd, msg, len)
+    (add x10 x0 x26)
+    (addi x12 x0 (len elf-phdr-data))
+    (addi x17 x0 SYS_WRITE)
+    (ecall)
+
+    ;; program
+    (add x10 x0 x26)
+    (add x11 x0 x20)
+    (sub x12 x21 x20)
+    (addi x17 x0 SYS_WRITE)
+    (ecall)
+    ;; data
+    (add x10 x0 x26)
+    (add x11 x0 x22)
+    (sub x12 x23 x22)
+    (addi x17 x0 SYS_WRITE)
+    (ecall)
+
+    (jalr x0 x1)
