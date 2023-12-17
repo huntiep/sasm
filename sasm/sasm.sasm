@@ -135,13 +135,13 @@ read-file
     (ecall)
 
     ;; Read input file to buffer
-    ;; mmap(NULL, 64k, PROT_READ, MAP_PRIVATE, fd, 0)
+    ;; mmap(NULL, 64k, PROT_RW, MAP_PRIVATE, fd, 0)
     (add x14 x0 x30)
     (add x10 x0 x0)
     (addi x11 x0 1)
     (slli x11 x11 16)
-    (addi x12 x0 1)
-    (addi x13 x0 2)
+    (addi x12 x0 PROT_RW)
+    (addi x13 x0 MAP_PRIVATE)
     (add x15 x0 x0)
     (addi x17 x0 SYS_MMAP)
     (ecall)
@@ -156,7 +156,7 @@ read-file
     (ecall)
 
     (add x10 x0 x30)
-    (add x11 x0 x31)
+    (add x11 x30 x31)
 
     (jalr x0 x1)
     error-open

@@ -7,6 +7,10 @@
 (define SEEK_END 2)
 
 (define AT_FDCWD -100)
+(define PROT_READ 1)
+(define PROT_WRITE 2)
+(define PROT_RW 3)
+(define MAP_PRIVATE 2)
 
 (define SYS_OPENAT 56)
 (define SYS_CLOSE 57)
