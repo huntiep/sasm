@@ -538,11 +538,11 @@ tokenize
 ;;  x11 - len: tokens.len : pointer to end of tokens
 ;; Locals:
 ;;  x20  - struct {
-;;  +0   - output-ptr: ArrayBuf<u32>
-;;  +8   - output-start
+;;  +0   - program-ptr: ArrayBuf<u32>
+;;  +8   - program-start
 ;;  +16  - data-ptr: ArrayBuf<u8>
 ;;  +24  - data-start
-;;  +32  - rewrite-ptr: ArrayBuf<(output-ptr[i], usize)>
+;;  +32  - rewrite-ptr: ArrayBuf<(program-ptr[i], data-offset)>
 ;;  +40  - rewrite-start
 ;;  +48  - labels-ptr: ArrayBuf<(Symbol, usize)>
 ;;  +56  - labels-start
@@ -556,6 +556,13 @@ tokenize
 ;;  +112  - include!-stack-ptr: ArrayBuf<(*tokens, *tokens.len)>
 ;;  +120 - include!-stack-start
 ;;  128  - }
+;; Ret:
+;;  x10 - program : ArrayBuf<u32>
+;;  x11 - program-end-ptr
+;;  x12 - data : ArrayBuf<u8>
+;;  x13 - data-end-ptr
+;;  x14 - rewrites : ArrayBuf<(program-ptr[i], data-offset)>
+;;  x15 - rewrites-end-ptr
 assemble
     (subi x2 x2 24)
     (sd x2 x10)
@@ -661,8 +668,8 @@ assemble
 
         (beq x11 x10 assemble-error)
         (lb x6 x10)
-        (lb x30 (+ x10 8))
-        (lb x31 (+ x10 4))
+        (ld x30 (+ x10 8))
+        (lw x31 (+ x10 4))
         (addi x10 x10 16)
         (subi x7 x6 Token::Integer)
         (beq x7 x0 assemble-handle-define-int)
@@ -683,16 +690,14 @@ assemble
             (sw x24 x28)
             (sd (+ x24 8) x23)
 
-            (sd (+ x24 16) x31)
-            (addi x24 x24 24)
-            (sd (+ x20 80) x24)
-
             (addi x30 x30 1)
             (add x31 x31 x30)
+            (add x28 x0 x0)
 
             assemble-handle-define-string-loop
                 (lb x6 x30)
                 (addi x30 x30 1)
+                (addi x28 x28 1)
                 (subi x7 x6 #'\\')
                 (beq x7 x0 assemble-handle-define-string-loop-escape)
                 assemble-handle-define-string-loop-escape-after
@@ -700,6 +705,9 @@ assemble
                 (addi x23 x23 1)
                 (bne x30 x31 assemble-handle-define-string-loop)
             assemble-handle-define-string-loop-after
+                (sd (+ x24 16) x28)
+                (addi x24 x24 24)
+                (sd (+ x20 80) x24)
                 (andi x6 x23 7)
                 (addi x7 x0 8)
                 (sub x7 x7 x6)
@@ -813,10 +821,11 @@ assemble
         (addi x25 x25 16)
         (sd (+ x20 112) x25)
 
+        (addi x6 x6 1)
+        (subi x7 x7 2)
         (add x11 x0 x6)
-        (add x6 x0 x0)
         (add x7 x6 x7)
-        (sb x7 x6)
+        (sb x7 x0)
 
         (jal x1 read-file)
         (jal x1 tokenize)
@@ -827,14 +836,14 @@ assemble
 
     assemble-add-label
         (ld x28 (- x10 8))
-        (ld x23 (+ x20 16))
+        (ld x23 (+ x20 48))
         (sd x23 x28)
         (ld x6 (+ x20 8))
         (ld x21 (+ x20 48))
         (sub x6 x21 x6)
         (sd (+ 8 x23) x6)
         (addi x23 x23 16)
-        (sd (+ x20 16) x23)
+        (sd (+ x20 48) x23)
         (jal x0 assemble-loop)
 
     assemble-handle-opcode
@@ -1052,7 +1061,7 @@ assemble
     assemble-la
         ;; rd
         (jal x1 assemble-unwrap-register)
-        (beq x10 11 assemble-error)
+        (beq x10 x11 assemble-error)
         (lb x7 x10)
         (subi x7 x7 Token::Symbol)
         (bne x7 x0 assemble-error)
@@ -1072,6 +1081,7 @@ assemble
             (ld x22 x20)
             (sd x21 x22)
             (sd (+ x21 8) x7)
+            (addi x21 x21 16)
             (sd (+ x20 32) x21)
             ;; lui
             (addi x5 x0 55)
@@ -1208,7 +1218,8 @@ assemble
             (sd (+ x28 8) x29)
             (addi x28 x28 16)
             (sd (+ x20 96) x28)
-            (jal x0 assemble-b-done)
+            (add x6 x0 x0)
+            (jalr x0 x1)
         assemble-unwrap-label-loop-after
             (ld x6 (+ x28 8))
             (ld x28 x20)
@@ -1348,7 +1359,7 @@ assemble
         assemble-unwrap-offset-reg-first-constant
         (jal x1 assemble-unwrap-imm)
         (add x27 x0 x6)
-        (jal x1 assemble-unwrap-reg)
+        (jal x1 assemble-unwrap-register)
         (add x26 x0 x6)
 
         assemble-unwrap-offset-after
@@ -1378,7 +1389,7 @@ assemble
         (ld x24 (+ x20 48))
         (ld x25 (+ x20 8))
         assemble-after-loop-free-jumps
-            (beq x21 x22 assemble-after-loop-free-jumps-after)
+            (beq x21 x22 assemble-after-loop-free-after)
             (ld x6 x21)
             (ld x23 (+ x20 56))
             assemble-after-loop-free-loop
@@ -1388,11 +1399,11 @@ assemble
                 (addi x23 x23 16)
                 (jal x0 assemble-after-loop-free-loop)
             assemble-after-loop-free-loop-after
-                (ld x6 (+ x23 8))
+                (ld x6 (+ x21 8))
                 (andi x7 x6 1)
                 (srai x6 x6 1)
                 (ld x5 (+ x21 8))
-                (add x28 x25 x5)
+                (add x28 x25 x6)
                 (lw x29 x28)
                 (sub x5 x5 x6)
                 (beq x7 x0 assemble-after-loop-free-b)
