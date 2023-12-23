@@ -23,15 +23,24 @@ pub use assembler::Assembler;
 pub use register::Register;
 
 fn main() {
-    let input_file = env::args().nth(1).unwrap();
+    let mut args = env::args();
+    let prog = args.next().unwrap();
+    let input_file = if let Some(arg) = args.next() {
+        arg
+    } else {
+        eprintln!("USAGE:\n\t{} <INPUT> [OUTPUT]", prog);
+        std::process::exit(1);
+    };
+    let output_file = if let Some(arg) = args.next() {
+        arg
+    } else {
+        "bin.elf".to_string()
+    };
     let input = fs::read_to_string(&input_file).unwrap();
     let tokens = tokenizer::Tokenizer::tokenize(&input).unwrap();
     let (program, data, rewrites) = Asm::new(tokens, &input);
     let e = elf::Elf::new(elf::ISA::Riscv, program, data, rewrites);
-    let mut output_file = input_file.split(".").next().unwrap();
-    if output_file == input_file {
-        output_file = "bin.elf";
-    }
+    //let e = elf::Elf::new_debug(elf::ISA::Riscv, program, data, rewrites);
     let mut f = OpenOptions::new()
         .create(true)
         .write(true)
