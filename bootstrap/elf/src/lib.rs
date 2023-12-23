@@ -24,7 +24,10 @@ impl Elf {
         assert!(data.len() < 0x100000);
         let program_offset = (mem::size_of::<Elf64Ehdr>() + (2 * mem::size_of::<Elf64Phdr>())) as u64;
         // 8-byte align
-        for _ in 0..8 - (program.len() % 8) {
+        if program.len() % 8 != 0 {
+            program.push(0);
+            program.push(0);
+            program.push(0);
             program.push(0);
         }
         let data_offset = program_offset + program.len() as u64;
