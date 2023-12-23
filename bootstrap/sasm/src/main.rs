@@ -1,4 +1,3 @@
-extern crate byteorder;
 extern crate elf;
 extern crate tokenizer;
 
@@ -16,7 +15,6 @@ use tokenizer::Token;
 use std::env;
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::os::unix::fs::OpenOptionsExt;
 
 pub use assembler::Assembler;
@@ -41,14 +39,14 @@ fn main() {
     let (program, data, rewrites) = Asm::new(tokens, &input);
     let e = elf::Elf::new(elf::ISA::Riscv, program, data, rewrites);
     //let e = elf::Elf::new_debug(elf::ISA::Riscv, program, data, rewrites);
-    let mut f = OpenOptions::new()
+    let f = OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .mode(0o777)
         .open(output_file)
         .unwrap();
-    f.write_all(&e.to_vec()).unwrap();
+    e.write(f).unwrap();
 
 }
 

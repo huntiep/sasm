@@ -1,4 +1,4 @@
-#[derive(Copy, Clone, Debug, PartialEq, is_enum_variant)]
+#[derive(Copy, Clone, Debug, PartialEq)]
 pub enum Token {
     /// (
     LParen(Index),
@@ -81,6 +81,20 @@ impl Token {
     pub fn as_str<'a>(&self, input: &'a str) -> &'a str {
         let Index { start, end } = self.index();
         &input[start..end]
+    }
+
+    pub fn is_string(&self) -> bool {
+        match self {
+            Token::String(_) => true,
+            _ => false,
+        }
+    }
+
+    pub fn is_symbol(&self) -> bool {
+        match self {
+            Token::Symbol(_) => true,
+            _ => false,
+        }
     }
 
     // TODO: not sure this is the right place for this

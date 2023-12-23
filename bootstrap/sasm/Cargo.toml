@@ -3,9 +3,6 @@ name = "sasm"
 version = "0.1.0"
 authors = ["Hunter Praska <hunter@wiggin-labs.com>"]
 
-[dependencies]
-byteorder = "1.2.6"
-
 [dependencies.elf]
 path = "../elf"
 

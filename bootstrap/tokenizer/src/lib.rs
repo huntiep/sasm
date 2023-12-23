@@ -1,6 +1,3 @@
-#[macro_use]
-extern crate derive_is_enum_variant;
-
 mod error;
 mod token;
 mod tokenizer;
