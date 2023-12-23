@@ -405,3 +405,28 @@ str-eq
     str-eq-true
         (addi x10 x0 1)
         (jalr x0 x1)
+
+symbol-table::print
+    (la x6 SYMBOL-TABLE)
+    (ld x6 x6)
+    (la x7 SYMBOL-TABLE.len)
+    (ld x7 x7)
+    (subi x2 x2 8)
+    (addi x31 x0 #'\n')
+    (sb x2 x31)
+    symbol-table::print-loop
+        (addi x10 x0 STDOUT)
+        (ld x11 x6)
+        (ld x12 (+ x6 8))
+        (addi x17 x0 SYS_WRITE)
+        (ecall)
+        (addi x10 x0 STDOUT)
+        (add x11 x0 x2)
+        (addi x12 x0 1)
+        (addi x17 x0 SYS_WRITE)
+        (ecall)
+        (addi x6 x6 16)
+        (subi x7 x7 1)
+        (bne x7 x0 symbol-table::print-loop)
+    (addi x2 x2 8)
+    (jalr x0 x1)
