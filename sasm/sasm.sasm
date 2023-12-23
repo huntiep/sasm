@@ -404,15 +404,15 @@ tokenize
 
         ;; Delimiter
         (subi x29 x28 #')')
-        (beq x29 x0 distinguish-ambiguous-pair)
+        (beq x29 x0 distinguish-ambiguous)
         (subi x29 x28 #'(')
-        (beq x29 x0 distinguish-ambiguous-pair)
+        (beq x29 x0 distinguish-ambiguous)
         (subi x29 x28 #'#')
-        (beq x29 x0 distinguish-ambiguous-pair)
+        (beq x29 x0 distinguish-ambiguous)
         (subi x29 x28 #';')
-        (beq x29 x0 distinguish-ambiguous-pair)
+        (beq x29 x0 distinguish-ambiguous)
         (subi x29 x28 #'"')
-        (beq x29 x0 distinguish-ambiguous-pair)
+        (beq x29 x0 distinguish-ambiguous)
         (subi x29 x28 #' ')
         (beq x29 x0 distinguish-ambiguous)
         (subi x29 x28 #'\t')
@@ -424,10 +424,8 @@ tokenize
 
         (jal x0 tokenize-identifier)
 
-    ;; There is some other token that we need to account for after this, so we move our cursor back.
-    distinguish-ambiguous-pair
-        (subi x10 x10 1)
     distinguish-ambiguous
+        (subi x10 x10 1)
         (add x28 x0 x31)
     distinguish-ambiguous-intp
         (lb x6 x28)
@@ -443,19 +441,21 @@ tokenize
         distinguish-ambiguous-intp-loop
             (lb x6 x28)
             (addi x28 x28 1)
+            (subi x7 x6 #':')
+            (bge x7 x0 distinguish-ambiguous-symbol)
             (subi x6 x6 #'0')
-            (addi x7 x0 11)
-            (bgeu x29 x7 distinguish-ambiguous-symbol)
+            (blt x6 x0 distinguish-ambiguous-symbol)
             (bne x28 x10 distinguish-ambiguous-intp-loop)
         distinguish-ambiguous-int
             (add x6 x0 x31)
             (add x28 x0 x0)
             (addi x29 x0 10)
+            (addi x31 x0 1)
             distinguish-ambiguous-int-convert
                 (lb x27 x6)
                 (addi x6 x6 1)
                 (subi x7 x27 #'+')
-                (beq x7 x0 distinguish-ambiguous-int-convert-after)
+                (beq x7 x0 distinguish-ambiguous-int-convert)
                 (subi x7 x27 #'-')
                 (beq x7 x0 distinguish-ambiguous-int-convert-negate)
                 (mul x28 x28 x29)
@@ -464,9 +464,10 @@ tokenize
                 (bne x6 x10 distinguish-ambiguous-int-convert)
                 (jal x0 distinguish-ambiguous-int-convert-after)
             distinguish-ambiguous-int-convert-negate
-                (sub x28 x0 x28)
+                (subi x31 x0 1)
+                (jal x0 distinguish-ambiguous-int-convert)
             distinguish-ambiguous-int-convert-after
-            (add x31 x0 x28)
+            (mul x31 x31 x28)
             (addi x30 x0 Token::Integer)
             (jal x0 tokenize-loop-push-token)
         distinguish-ambiguous-symbol
@@ -1268,12 +1269,12 @@ assemble
             (ld x29 (+ x20 64))
             assemble-unwrap-imm-symbol-loop
                 (beq x28 x29 assemble-error)
-                (ld x7 x28)
+                (lw x7 x28)
                 (beq x6 x7 assemble-unwrap-imm-symbol-loop-after)
-                (addi x28 x28 16)
+                (addi x28 x28 8)
                 (jal x0 assemble-unwrap-imm-symbol-loop)
             assemble-unwrap-imm-symbol-loop-after
-                (lw x6 (+ x28 8))
+                (lw x6 (+ x28 4))
                 (jalr x0 x1)
 
         assemble-unwrap-imm-len
@@ -1342,7 +1343,7 @@ assemble
         (jal x1 assemble-unwrap-imm)
         (add x27 x0 x6)
         (jal x1 assemble-unwrap-register)
-        (add x7 x0 x27)
+        (add x26 x0 x6)
         (jal x0 assemble-unwrap-offset-after)
 
         assemble-unwrap-offset-reg-first
@@ -1368,7 +1369,8 @@ assemble
         (subi x6 x6 Token::RightParen)
         (bne x6 x0 assemble-error)
         (addi x10 x10 16)
-        (mul x27 x27 x25)
+        (add x6 x0 x26)
+        (mul x7 x27 x25)
         (ld x1 x2)
         (addi x2 x2 8)
         (jalr x0 x1)
