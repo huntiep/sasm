@@ -37,8 +37,10 @@ impl Elf {
         for id in &mut data {
             // 8-byte align
             let align = (pos+id.len() as u64) % 8;
-            for _ in 0..8-align {
-                id.push(0);
+            if align > 0 {
+                for _ in 0..8-align {
+                    id.push(0);
+                }
             }
             data_position.push(pos);
             pos += id.len() as u64;
