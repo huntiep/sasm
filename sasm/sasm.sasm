@@ -1406,7 +1406,7 @@ assemble
                 (ld x6 (+ x21 8))
                 (andi x7 x6 1)
                 (srai x6 x6 1)
-                (ld x5 (+ x21 8))
+                (ld x5 (+ x23 8))
                 (add x28 x25 x6)
                 (lw x29 x28)
                 (sub x5 x5 x6)
