@@ -713,6 +713,7 @@ assemble
                 (addi x7 x0 8)
                 (sub x7 x7 x6)
                 (bne x6 x0 assemble-handle-define-align)
+                (sd (+ x20 16) x23)
                 (jal x0 assemble-handle-define-after)
             assemble-handle-define-align
                 (sb x23 x0)
@@ -785,6 +786,7 @@ assemble
             (addi x7 x0 8)
             (sub x7 x7 x6)
             (bne x6 x0 assemble-handle-define-align)
+            (sd (+ x20 16) x23)
             (jal x0 assemble-handle-define-after)
 
         assemble-handle-define-int
@@ -840,7 +842,7 @@ assemble
         (ld x23 (+ x20 48))
         (sd x23 x28)
         (ld x6 (+ x20 8))
-        (ld x21 (+ x20 48))
+        (ld x21 x20)
         (sub x6 x21 x6)
         (sd (+ 8 x23) x6)
         (addi x23 x23 16)
@@ -1041,18 +1043,17 @@ assemble
         (beq x6 x0 assemble-after-opcode)
 
         ;; imm1
-        (addi x31 x0 30)
-        (and x7 x6 x31)
-        (srli x31 x6 11)
+        (andi x7 x6 30)
+        (srai x31 x6 11)
         (andi x31 x31 1)
         (or x7 x31 x7)
         (slli x7 x7 7)
-        (or x5 x6 x5)
+        (or x5 x7 x5)
 
         ;; imm2
-        (srli x7 x6 6)
+        (srai x7 x6 6)
         (andi x7 x7 64)
-        (srli x6 x6 5)
+        (srai x6 x6 5)
         (andi x6 x6 63)
         (or x6 x6 x7)
         (slli x6 x6 25)
@@ -1112,14 +1113,13 @@ assemble
 
         ;; (imm & 0x10_00_00) >> 1
         (addi x29 x0 1)
-        (slli x29 x0 20)
+        (slli x29 x29 20)
         (and x28 x6 x29)
         (srai x28 x28 1)
 
         ;;(imm >> 1) & 0x3ff) << 9
         (srai x29 x6 1)
-        (addi x30 x0 1023)
-        (and x29 x29 x30)
+        (andi x29 x29 1023)
         (slli x29 x29 9)
         (or x28 x28 x29)
 
@@ -1229,7 +1229,7 @@ assemble
             (sub x6 x6 x28)
             ;; 0 upper 32 bits
             (slli x6 x6 32)
-            (srli x6 x6 32)
+            (srai x6 x6 32)
             (jalr x0 x1)
 
     assemble-unwrap-register
@@ -1239,10 +1239,10 @@ assemble
         (bne x6 x0 assemble-error)
         (ld x6 (+ x10 8))
         (addi x10 x10 16)
-        (subi x7 x6 Register::x31)
-        (subi x7 x7 1)
-        (bge x7 x0 assemble-error)
+        (subi x6 x6 Register::x31)
         (subi x6 x6 1)
+        (bge x6 x0 assemble-error)
+        (addi x6 x6 Register::x31)
         (jalr x0 x1)
 
     assemble-unwrap-imm
@@ -1308,6 +1308,8 @@ assemble
                 (jalr x0 x1)
 
     assemble-unwrap-offset
+        ;; Have to zero this in case it is just a register
+        (add x7 x0 x0)
         (beq x10 x11 assemble-error)
         (lb x6 x10)
         (subi x7 x6 Token::Symbol)
@@ -1408,18 +1410,17 @@ assemble
                 (add x28 x25 x6)
                 (lw x29 x28)
                 (sub x5 x5 x6)
-                (beq x7 x0 assemble-after-loop-free-b)
+                (bne x7 x0 assemble-after-loop-free-b)
                 ;; j
                 ;; (imm & 0x10_00_00) >> 1
                 (addi x31 x0 1)
-                (slli x31 x0 20)
+                (slli x31 x31 20)
                 (and x31 x5 x31)
                 (srai x31 x31 1)
 
                 ;;(imm >> 1) & 0x3ff) << 9
                 (srai x6 x5 1)
-                (addi x7 x0 1023)
-                (and x6 x6 x7)
+                (andi x6 x6 1023)
                 (slli x6 x6 9)
                 (or x31 x31 x6)
 
@@ -1439,17 +1440,16 @@ assemble
 
             assemble-after-loop-free-b
                 ;; imm1
-                (addi x31 x0 30)
-                (and x7 x5 x31)
-                (srli x31 x5 11)
+                (andi x7 x5 30)
+                (srai x31 x5 11)
                 (andi x31 x31 1)
                 (or x7 x31 x7)
                 (slli x7 x7 7)
                 (or x29 x7 x29)
                 ;; imm2
-                (srli x7 x5 6)
+                (srai x7 x5 6)
                 (andi x7 x7 64)
-                (srli x6 x5 5)
+                (srai x6 x5 5)
                 (andi x6 x6 63)
                 (or x6 x6 x7)
                 (slli x6 x6 25)
@@ -1502,13 +1502,6 @@ assemble
 ;;  x14 - rewrite-ptr: ArrayBuf<(program-ptr[i], usize)>
 ;;  x15 - rewrite-end
 ;;  x16 - Output fd
-;; Locals
-;;   x20 - elf output buffer
-;;   x21 - data_offset
-;;   x22 - data_len
-;;   x23 - shstrtab_offset
-;;   x24 - &data_position (offset)
-;;   x25 - elf output buffer beginning
 elf
     ;; 0x400000
     (define Elf::ENTRY_LOCATION 4194304)
