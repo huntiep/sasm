@@ -947,11 +947,7 @@ assemble
             (jal x0 assemble-r-funct7-after)
 
     assemble-i
-        (addi x31 x0 1)
-        (subi x7 x6 Instr::subi)
-        (bne x7 x0 assemble-i-continue)
-        (subi x31 x0 1)
-    assemble-i-continue
+        (add x31 x0 x6)
 
         (addi x5 x0 19)
         ;; funct3
@@ -970,7 +966,21 @@ assemble
         (or x5 x5 x6)
         ;; imm
         (jal x1 assemble-unwrap-imm)
-        (mul x6 x6 x31)
+
+        (subi x7 x31 Instr::subi)
+        (addi x30 x0 1)
+        (bne x7 x0 assemble-i-subi)
+        (subi x30 x0 1)
+    assemble-i-subi
+        (mul x6 x6 x30)
+
+        (subi x7 x31 Instr::srai)
+        (bne x7 x0 assemble-i-srai)
+        (addi x7 x0 32)
+        (slli x7 x7 5)
+        (or x6 x6 x7)
+
+    assemble-i-srai
         (slli x6 x6 20)
         (or x5 x5 x6)
         (jal x0 assemble-after-opcode)
