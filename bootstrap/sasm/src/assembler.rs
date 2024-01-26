@@ -1,5 +1,6 @@
-use {Emitter, Register};
+use Register;
 
+use std::io::{Read, Write};
 use std::collections::HashMap;
 
 macro_rules! r {
@@ -50,7 +51,7 @@ enum JumpType {
 pub struct Assembler {
     labels: HashMap<String, usize>,
     jumps: Vec<(String, usize, JumpType)>,
-    emitter: Emitter,
+    instructions: Vec<u8>,
 }
 
 impl Assembler {
@@ -58,20 +59,33 @@ impl Assembler {
         Assembler {
             labels: HashMap::new(),
             jumps: Vec::new(),
-            emitter: Emitter::new(),
+            instructions: Vec::new(),
         }
     }
 
     pub fn len(&self) -> usize {
-        self.emitter.len()
+        self.instructions.len()
     }
 
     pub fn code(self) -> Vec<u8> {
-        self.emitter.code()
+        self.instructions
     }
 
-    pub fn append(&mut self, other: Vec<u8>) {
-        self.emitter.append(other);
+    pub fn append(&mut self, other: Self) {
+        let Assembler { labels, jumps, mut instructions } = other;
+        let len = self.instructions.len();
+        self.instructions.append(&mut instructions);
+        for (l, p) in labels {
+            if self.labels.contains_key(&l) {
+                panic!("Duplicate label `{}`", l);
+            } else {
+                self.labels.insert(l, p+len);
+            }
+        }
+
+        for (l, p, t) in jumps {
+            self.jumps.push((l, p+len, t));
+        }
     }
 
     pub fn finish(mut self) -> Vec<u8> {
@@ -94,19 +108,33 @@ impl Assembler {
         self.code()
     }
 
+    pub fn emit_u32(&mut self, b: u32) {
+        self.instructions.write_all(&b.to_le_bytes()).unwrap();
+    }
+
+    pub fn read_u32_at_offset(&mut self, offset: usize) -> u32 {
+        let mut buf = [0; 4];
+        (&self.instructions[offset..]).read_exact(&mut buf).unwrap();
+        u32::from_le_bytes(buf)
+    }
+
+    pub fn replace_u32_at_offset(&mut self, offset: usize, b: u32) {
+        (&mut self.instructions[offset..]).write_all(&b.to_le_bytes()).unwrap();
+    }
+
     pub fn label<S: Into<String>>(&mut self, label: S) {
         let label = label.into();
         if self.labels.contains_key(&label) {
             panic!("Duplicate label `{}`", label);
         } else {
-            self.labels.insert(label, self.emitter.len());
+            self.labels.insert(label, self.instructions.len());
         }
     }
 
     #[inline]
     fn r(&mut self, rd: Register, rs1: Register, rs2: Register, funct3: u32, funct7: u32) {
         let instr = (funct7 << 25) | (rs2.as_u32() << 20) | (rs1.as_u32() << 15) | (funct3 << 12) | (rd.as_u32() << 7) | 0b0110011;
-        self.emitter.emit_u32(instr);
+        self.emit_u32(instr);
     }
 
     r!(add, 0x0, 0x00);
@@ -127,7 +155,7 @@ impl Assembler {
     fn i(&mut self, rd: Register, rs: Register, funct3: u32, imm: i32, opcode: u32) {
         assert!(imm < 2048 && imm >= -2048);
         let instr = ((imm as u32) << 20) | (rs.as_u32() << 15) | (funct3 << 12) | (rd.as_u32() << 7) | opcode;
-        self.emitter.emit_u32(instr);
+        self.emit_u32(instr);
     }
 
     i!(addi, 0x00);
@@ -168,7 +196,7 @@ impl Assembler {
         assert!(imm >= -2048 && imm <= 2047);
         let imm = imm as u32;
         let instruction = ((imm >> 5) << 25) | (rd.as_u32() << 20) | (rs.as_u32() << 15) | (funct3 << 12) | ((imm & 0b11111) << 7) | 0b0100011;
-        self.emitter.emit_u32(instruction);
+        self.emit_u32(instruction);
     }
 
     s!(sb, 0x0);
@@ -179,9 +207,9 @@ impl Assembler {
     #[inline]
     fn b(&mut self, rs1: Register, rs2: Register, funct3: u32, label: &str) {
         let imm = if let Some(&i) = self.labels.get(label) {
-            (i as isize - self.emitter.len() as isize) as i32
+            (i as isize - self.instructions.len() as isize) as i32
         } else {
-            self.jumps.push((label.to_string(), self.emitter.len(), JumpType::Branch));
+            self.jumps.push((label.to_string(), self.instructions.len(), JumpType::Branch));
             0
         };
         assert!(imm >= -4096 && imm <= 4095);
@@ -189,17 +217,17 @@ impl Assembler {
         let imm1 =  (imm & 0x1e) | ((imm >> 11) & 1);
         let imm2 = ((imm & 0x10_00) >> 6) | ((imm >> 5) & 0x3F);
         let instruction = (imm2 << 25) | (rs2.as_u32() << 20) | (rs1.as_u32() << 15) | (funct3 << 12) | (imm1 << 7) | 0b1100011;
-        self.emitter.emit_u32(instruction);
+        self.emit_u32(instruction);
     }
 
     fn rewrite_b(&mut self, offset: usize, imm: i32) {
         assert!(imm >= -4096 && imm <= 4095);
         let imm = imm as u32;
-        let instruction = self.emitter.read_u32_at_offset(offset);
+        let instruction = self.read_u32_at_offset(offset);
         let imm1 =  (imm & 0x1e) | ((imm >> 11) & 1);
         let imm2 = ((imm & 0x10_00) >> 6) | ((imm >> 5) & 0x3F);
         let instruction = (imm2 << 25) | (imm1 << 7) | instruction;
-        self.emitter.replace_u32_at_offset(offset, instruction);
+        self.replace_u32_at_offset(offset, instruction);
     }
 
     b!(beq, 0x0);
@@ -211,25 +239,25 @@ impl Assembler {
 
     pub fn jal(&mut self, rd: Register, label: &str) {
         let imm = if let Some(&i) = self.labels.get(label) {
-            (i as isize - self.emitter.len() as isize) as i32
+            (i as isize - self.instructions.len() as isize) as i32
         } else {
-            self.jumps.push((label.to_string(), self.emitter.len(), JumpType::Jump));
+            self.jumps.push((label.to_string(), self.instructions.len(), JumpType::Jump));
             0
         };
         assert!(imm >= -1048576 && imm <= 1048575);
         let imm = imm as u32;
         let imm2 = ((imm & 0x10_00_00) >> 1) | (((imm >> 1) & 0x3_FF) << 9) | (((imm >> 11) & 1) << 8) | ((imm >> 12) & 0xFF);
         let instruction = (imm2 << 12) | (rd.as_u32() << 7) | 0b1101111;
-        self.emitter.emit_u32(instruction);
+        self.emit_u32(instruction);
     }
 
     fn rewrite_j(&mut self, offset: usize, imm: i32) {
         assert!(imm >= -1048576 && imm <= 1048575);
         let imm = imm as u32;
-        let instruction = self.emitter.read_u32_at_offset(offset);
+        let instruction = self.read_u32_at_offset(offset);
         let imm2 = ((imm & 0x10_00_00) >> 1) | (((imm >> 1) & 0x3_FF) << 9) | (((imm >> 11) & 1) << 8) | ((imm >> 12) & 0xFF);
         let instruction = (imm2 << 12) | instruction;
-        self.emitter.replace_u32_at_offset(offset, instruction);
+        self.replace_u32_at_offset(offset, instruction);
     }
 
     //TODO
@@ -240,13 +268,13 @@ impl Assembler {
     pub fn lui(&mut self, rd: Register, imm: u32) {
         assert!(imm <= 0xF_FF_FF);
         let instruction = (imm << 12) | (rd.as_u32() << 7) | 0b0110111;
-        self.emitter.emit_u32(instruction);
+        self.emit_u32(instruction);
     }
 
     pub fn auipc(&mut self, rd: Register, imm: u32) {
         assert!(imm <= 0xF_FF_FF);
         let instruction = (imm << 12) | (rd.as_u32() << 7) | 0b0010111;
-        self.emitter.emit_u32(instruction);
+        self.emit_u32(instruction);
     }
 
     pub fn ecall(&mut self) {

@@ -5,10 +5,7 @@ extern crate tokenizer;
 mod macros;
 
 mod assembler;
-mod emitter;
 mod register;
-
-use emitter::Emitter;
 
 use tokenizer::Token;
 
