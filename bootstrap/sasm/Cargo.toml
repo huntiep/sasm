@@ -1,10 +1,4 @@
 [package]
 name = "sasm"
-version = "0.1.0"
+version = "2.0.0"
 authors = ["Hunter Praska <hunter@wiggin-labs.com>"]
-
-[dependencies.elf]
-path = "../elf"
-
-[dependencies.tokenizer]
-path = "../tokenizer"
