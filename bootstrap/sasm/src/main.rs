@@ -92,7 +92,7 @@ fn main() {
 }
 
 fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, err: bool) -> (Vec<u32>, Vec<u8>, Vec<(usize, usize)>) {
-    let mut root = Module::new(None, false);
+    let mut root = Module::new(0, None, false);
     let name = filename.rsplitn(2, '.').last().unwrap().as_bytes().to_vec();
     root.children.insert(get_symbol(name), Unit::Module(1));
 
@@ -102,7 +102,7 @@ fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, err: bool) -> 
         tokens: tokens,
         position: 0,
         err: err,
-        modules: vec![root, Module::new(Some(0), true)],
+        modules: vec![root, Module::new(1, Some(0), true)],
         module: 1,
         data: Vec::new(),
     };
@@ -136,24 +136,30 @@ struct Asm {
 
 type Symbol = usize;
 struct Module {
+    id: usize,
     parent: Option<usize>,
     children: HashMap<Symbol, Unit>,
     filep: bool,
+    location: usize,
     code: Vec<u32>,
     labels: HashMap<Symbol, usize>,
     jumps: Vec<(Symbol, usize, JumpType)>,
-    rewrites: Vec<(usize, Symbol)>,
+    refs: Vec<(Vec<Symbol>, usize, JumpType)>,
+    rewrites: Vec<(usize, usize)>,
 }
 
 impl Module {
-    fn new(parent: Option<usize>, filep: bool) -> Self {
+    fn new(id: usize, parent: Option<usize>, filep: bool) -> Self {
         Module {
+            id: id,
             parent: parent,
             children: HashMap::new(),
             filep: filep,
+            location: 0,
             code: Vec::new(),
             labels: HashMap::new(),
             jumps: Vec::new(),
+            refs: Vec::new(),
             rewrites: Vec::new(),
         }
     }
@@ -197,6 +203,7 @@ enum JumpType {
     Jump
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Unit {
     Constant(i64),
     // position in data, len
@@ -250,41 +257,34 @@ impl Asm {
 
     fn finish(&mut self) -> (Vec<u32>, Vec<u8>, Vec<(usize, usize)>) {
         let mut code = Vec::new();
-        let mut jumps = Vec::new();
-        let mut labels = HashMap::new();
         let mut rewrites = Vec::new();
+        let mut refs = Vec::new();
         for module in &mut self.modules[1..] {
             let j = module.finish();
             for (l, i, ty) in j {
-                jumps.push((l, i + (code.len() * 4), ty));
+                refs.push((module.id, vec![l], i + (code.len() * 4), ty));
             }
-            for (l, i) in &module.labels {
-                labels.insert(l, i + (code.len() * 4));
+            for (path, i, ty) in &module.refs {
+                refs.push((module.id, path.clone(), i + (code.len() * 4), *ty));
             }
-            for (i, s) in &module.rewrites {
-                let p = match module.children.get(s) {
-                    Some(Unit::Bytes(p, _)) => p,
-                    Some(_) => {
-                        self.err = true;
-                        continue;
-                    },
-                    None => {
-                        self.err = true;
-                        continue;
-                    },
-                };
+            self.module = module.id;
+            for (i, p) in &module.rewrites {
                 rewrites.push((i + code.len(), *p));
             }
+            module.location = code.len() * 4;
             code.append(&mut module.code);
         }
 
-        for (label, i, ty) in jumps {
-            let p = if let Some(p) = labels.get(&label) {
-                *p
-            } else {
-                eprintln!("Unknown label `{}`.", get_value(label).unwrap());
-                self.err = true;
-                continue;
+        for (id, path, i, ty) in refs {
+            self.module = id;
+            let p = match self.follow_path(&path) {
+                Some(Unit::Module(m)) => self.modules[m].location,
+                Some(_) => {
+                    eprintln!("Expected module.");
+                    self.err = true;
+                    continue;
+                }
+                None => continue,
             };
 
             let imm = (p as isize - i as isize) as i32;
@@ -313,10 +313,10 @@ impl Asm {
     fn add_label(&mut self, label: usize) {
         let m = self.get_mod();
         if m.labels.contains_key(&label) {
-            eprintln!("Duplicate label `{}`.", get_value(label).unwrap());
+            eprintln!("Duplicate label `{}`.", get_value(label));
             self.err = true;
         } else if m.children.contains_key(&label) {
-            eprintln!("Label `{}` conflicts with module/definition.", get_value(label).unwrap());
+            eprintln!("Label `{}` conflicts with module/definition.", get_value(label));
             self.err = true;
         } else {
             m.labels.insert(label, m.code.len() * 4);
@@ -347,11 +347,11 @@ impl Asm {
             }
         };
 
-        let module = Module::new(Some(self.module), false);
         // shitty bc
         let m_id = self.modules.len();
+        let module = Module::new(m_id, Some(self.module), false);
         if self.get_mod().children.contains_key(&ident) {
-            eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(ident).unwrap());
+            eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(ident));
             self.err = true;
         } else {
             self.get_mod().children.insert(ident, Unit::Module(m_id));
@@ -482,13 +482,13 @@ impl Asm {
         match self.next() {
             // retarded match behaviour
             Some(Token::Integer(i)) => if self.get_mod().children.contains_key(&ident) {
-                eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident).unwrap());
+                eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
                 self.err = true;
             } else {
                 self.get_mod().children.insert(ident, Unit::Constant(i));
             },
             Some(Token::Char(c)) => if self.get_mod().children.contains_key(&ident) {
-                eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident).unwrap());
+                eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
                 self.err = true;
             } else {
                 self.get_mod().children.insert(ident, Unit::Constant(c as i64));
@@ -548,7 +548,7 @@ impl Asm {
                 }
                 let start = self.data.len();
                 if self.get_mod().children.contains_key(&ident) {
-                    eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident).unwrap());
+                    eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
                     self.err = true;
                 } else {
                     self.get_mod().children.insert(ident, Unit::Bytes(start, v.len()));
@@ -562,7 +562,7 @@ impl Asm {
                 let mut s = self.get_string(start, end);
                 let start = self.data.len();
                 if self.get_mod().children.contains_key(&ident) {
-                    eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident).unwrap());
+                    eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
                     self.err = true;
                 } else {
                     self.get_mod().children.insert(ident, Unit::Bytes(start, s.len()));
@@ -650,20 +650,28 @@ impl Asm {
             } else if symbol == symbols::SRAI {
                 imm = imm | (0x20 << 5);
             }
+            if (imm as i32) >= 2048 || (imm as i32) < -2048 {
+                eprintln!("Immediate `{}` out of range [-2048, 2048)", imm as i32);
+                self.err = true;
+                imm = 0
+            }
             (imm << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0010011
         // I2 instructions
         } else if symbol <= symbols::LWU {
             let rd = self.unwrap_register();
-            let (rs1, imm) = self.unwrap_offset();
+            let (rs1, mut imm) = self.unwrap_offset();
+            if (imm as i32) >= 2048 || (imm as i32) < -2048 {
+                eprintln!("Offset `{}` out of range [-2048, 2048)", imm as i32);
+                self.err = true;
+                imm = 0
+            }
             (imm << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0000011
         } else if symbol == symbols::LA {
             let rd = self.unwrap_register();
             // TODO: lookup global/rewrite
-            let ident = match self.next() {
-                Some(Token::Symbol(s)) => s,
-                Some(Token::LParen) => {
-                    todo!();
-                },
+            let path = match self.next() {
+                Some(Token::Symbol(s)) => vec![s],
+                Some(Token::LParen) => self.unwrap_path(),
                 Some(Token::RParen) => {
                     eprintln!("Expected identifier in instruction.");
                     self.err = true;
@@ -680,8 +688,21 @@ impl Asm {
                     return;
                 }
             };
-            let p = self.get_mod().code.len();
-            self.get_mod().rewrites.push((p, ident));
+            let p = match self.follow_path(&path) {
+                Some(Unit::Bytes(p, _)) => p,
+                Some(_) => {
+                    eprintln!("Global not defined/imported at use.");
+                    self.err = true;
+                    0
+                },
+                None => {
+                    eprintln!("Global not defined/imported at use.");
+                    self.err = true;
+                    0
+                },
+            };
+            let i = self.get_mod().code.len();
+            self.get_mod().rewrites.push((i, p));
             // lui
             let i = (rd << 7) | 0b0110111;
             self.get_mod().code.push(i);
@@ -689,13 +710,17 @@ impl Asm {
             (rd << 15) | (rd << 7) | 0b0010011
         // S instructions
         } else if symbol <= symbols::SD {
-            let (rs1, imm) = self.unwrap_offset();
+            let (rs1, mut imm) = self.unwrap_offset();
+            if (imm as i32) >= 2048 || (imm as i32) < -2048 {
+                eprintln!("Offset `{}` out of range [-2048, 2048)", imm as i32);
+                self.err = true;
+                imm = 0
+            }
             let rd = self.unwrap_register();
             ((imm >> 5) << 25) | (rd << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | ((imm & 0b11111) << 7) | 0b0100011
 
         // B instructions
         } else if symbol <= symbols::BGEU {
-            // TODO
             let rs1 = self.unwrap_register();
             let rs2 = self.unwrap_register();
             let mut i = (rs2 << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | 0b1100011;
@@ -709,7 +734,6 @@ impl Asm {
             i
         // Other instructions
         } else if symbol == symbols::JAL {
-            // TODO
             let rd = self.unwrap_register();
             let mut i = (rd << 7) | 0b1101111;
             if let Some(imm) = self.unwrap_label(false) {
@@ -725,7 +749,12 @@ impl Asm {
             (imm << 20) | (rs << 15) | (rd << 7) | 0b1100111
         } else if symbol == symbols::LUI || symbol == symbols::AUIPC {
             let rd = self.unwrap_register();
-            let imm = self.unwrap_imm();
+            let mut imm = self.unwrap_imm();
+            if imm > 0xF_FF_FF {
+                eprintln!("Immediate `{}` out of range [-2048, 2048)", imm as i32);
+                self.err = true;
+                imm = 0
+            }
             (imm << 12) | (rd << 7) | if symbol == symbols::LUI { 0b0110111 } else { 0b0010111 }
         } else if symbol == symbols::ECALL {
             0b1110011
@@ -765,7 +794,7 @@ impl Asm {
                 s as u32 - 1
             } else {
                 // TODO
-                eprintln!("Expected register in instruction, got identifier `{}`", get_value(s).unwrap());
+                eprintln!("Expected register in instruction, got identifier `{}`", get_value(s));
                 self.err = true;
                 0
             },
@@ -795,23 +824,73 @@ impl Asm {
             Some(Token::LParen) => {
                 match self.next() {
                     Some(Token::Symbol(s)) if s == symbols::LEN => (),
-                    Some(Token::Symbol(s)) => {
-                        // TODO PATH
+                    Some(Token::Symbol(_)) => {
+                        self.position -= 1;
+                        let path = self.unwrap_path();
+                        return match self.follow_path(&path) {
+                            Some(Unit::Constant(i)) => i as i32 as u32,
+                            Some(_) => {
+                                eprintln!("Variable must be a constant.");
+                                self.err = true;
+                                0
+                            }
+                            None => {
+                                eprintln!("Global value has not been defined.");
+                                self.err = true;
+                                0
+                            }
+                        };
+                    }
+                    Some(Token::RParen) => {
+                        eprintln!("Expected path.");
+                        self.err = true;
+                        return 0;
                     }
                     Some(_) => {
                         // TODO
+                        eprintln!("Expected path.");
                         self.err = true;
+                        return 0;
                     }
                     None => {
                         // TODO
+                        eprintln!("Unexpected EOF.");
                         self.err = true;
+                        return 0;
                     }
                 }
                 match self.next() {
                     Some(Token::Symbol(s)) => {
-                        // TODO: lookup global and get length
-                        0
+                        match self.get_mod().children.get(&s) {
+                            Some(Unit::Bytes(_, l)) => *l as u32,
+                            Some(_) => {
+                                eprintln!("Global value `{}` has not been defined.", get_value(s));
+                                self.err = true;
+                                0
+                            }
+                            None => {
+                                eprintln!("Global value `{}` has not been defined.", get_value(s));
+                                self.err = true;
+                                0
+                            }
+                        }
                     },
+                    Some(Token::LParen) => {
+                        let path = self.unwrap_path();
+                        match self.follow_path(&path) {
+                            Some(Unit::Bytes(_, l)) => l as u32,
+                            Some(_) => {
+                                eprintln!("Global value has not been defined.");
+                                self.err = true;
+                                0
+                            }
+                            None => {
+                                eprintln!("Global value has not been defined.");
+                                self.err = true;
+                                0
+                            }
+                        }
+                    }
                     Some(_) => {
                         // TODO
                         self.err = true;
@@ -819,6 +898,7 @@ impl Asm {
                     }
                     None => {
                         // TODO
+                        eprintln!("Unexpected EOF.");
                         self.err = true;
                         0
                     }
@@ -921,12 +1001,8 @@ impl Asm {
             } else {
                 (self.unwrap_imm(), self.unwrap_register())
             },
-            Some(Token::Integer(_)) => {
+            Some(Token::Integer(_)) | Some(Token::LParen) => {
                 (self.unwrap_imm(), self.unwrap_register())
-            }
-            Some(Token::LParen) => {
-                //TODO read path
-                todo!();
             }
             Some(Token::RParen) => {
                 // TODO
@@ -959,7 +1035,13 @@ impl Asm {
             Some(Token::Symbol(s)) => s,
             // TODO
             Some(Token::LParen) => {
-                todo!();
+                let path = self.unwrap_path();
+                if path.is_empty() {
+                    return None;
+                }
+                let p = self.get_mod().code.len() * 4;
+                self.get_mod().refs.push((path, p, if branchp { JumpType::Branch } else { JumpType::Jump }));
+                return None;
             },
             Some(Token::RParen) => {
                 self.position -= 1;
@@ -986,6 +1068,84 @@ impl Asm {
                 None
             }
         }
+    }
+
+    fn unwrap_path(&mut self) -> Vec<Symbol> {
+        let mut path = Vec::new();
+        loop {
+            match self.next() {
+                Some(Token::RParen) => return path,
+                Some(Token::Symbol(s)) => path.push(s),
+                Some(_) => {
+                    eprintln!("Unexpected token in path");
+                    self.err = true;
+                    self.skip_opcode();
+                    return Vec::new();
+                }
+                None => {
+                    eprintln!("Unexpected EOF");
+                    self.err = true;
+                    return Vec::new();
+                }
+            }
+        }
+    }
+
+    fn follow_path(&mut self, path: &[Symbol]) -> Option<Unit> {
+        if path.len() == 1 {
+            let mut m = &self.modules[self.module];
+            loop {
+                if let Some(u) = m.children.get(&path[0]) {
+                    return Some(*u);
+                } else if m.filep {
+                    return None;
+                } else {
+                    // shitty bc
+                    let p = m.parent.unwrap();
+                    m = &self.modules[p];
+                }
+            }
+        }
+
+        let mut m = &self.modules[self.module];
+        let mut i = 0;
+        while i < path.len() {
+            let p = path[i];
+            i += 1;
+            if p == symbols::CARAT {
+                let p = if let Some(p) = m.parent {
+                    p
+                } else {
+                    eprintln!("Path jumped past root.");
+                    self.err = true;
+                    return None;
+                };
+                m = &self.modules[p];
+                continue;
+            }
+
+            match m.children.get(&p) {
+                v @ Some(Unit::Bytes(_, _)) | v @ Some(Unit::Constant(_)) => {
+                    if i == path.len() {
+                        return Some(*v.unwrap());
+                    } else {
+                        return None;
+                    }
+                }
+                Some(Unit::Module(id)) => m = &self.modules[*id],
+                None => {
+                    if m.filep {
+                        self.err = true;
+                        return None;
+                    } else {
+                        let p = m.parent.unwrap();
+                        m = &self.modules[p];
+                        i -= 1;
+                    }
+                }
+            }
+        }
+        Some(Unit::Module(m.id))
     }
 
     fn next(&mut self) -> Option<Token> {

@@ -16,14 +16,14 @@ pub fn get_symbol(value: Vec<u8>) -> usize {
 }
 
 #[inline]
-pub fn get_value(s: usize) -> Option<String> {
+pub fn get_value(s: usize) -> String {
     let i = INTERNER.lock().unwrap();
     for (k, v) in i.iter() {
         if *v == s {
-            return Some(String::from_utf8_lossy(k).to_string());
+            return String::from_utf8_lossy(k).to_string();
         }
     }
-    None
+    panic!("INVARIANT BROKEN IN `get_value()`");
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]

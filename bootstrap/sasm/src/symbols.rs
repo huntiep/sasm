@@ -26,6 +26,7 @@ pub const PLUS: usize = 83;
 pub const NEG: usize = 84;
 pub const IMPORT: usize = 85;
 pub const MODULE: usize = 86;
+pub const CARAT: usize = 87;
 
 pub fn init() {
     assert_eq!(get_symbol(b"x0".to_vec()), 1);
@@ -122,4 +123,5 @@ pub fn init() {
     assert_eq!(get_symbol(b"-".to_vec()), 84);
     get_symbol(b"import".to_vec());
     get_symbol(b"module".to_vec());
+    get_symbol(b"^".to_vec());
 }
