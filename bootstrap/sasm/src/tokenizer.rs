@@ -106,6 +106,7 @@ impl Tokenizer {
                 _ => self.parse_identifier(self.position - 1, self.lines.len()),
             }
         }
+        self.newline();
     }
 
     fn newline(&mut self) {
@@ -157,7 +158,11 @@ impl Tokenizer {
         }
         eprintln!("Unclosed string beginning on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
         self.err = true;
-        return;
+        if line < self.lines.len() {
+            self.position = self.lines[line].1;
+            self.tokens.push(Token::String(start, self.position-1));
+            self.token_info.push(TokenInfo { start: start-1, end: self.position, line: line });
+        }
     }
 
     fn parse_literal(&mut self) {
