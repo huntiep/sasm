@@ -116,6 +116,8 @@ const RODATA_LOCATION: u64 = 0x700000;
 
 const RISCV: u16 = 0xf3;
 
+// rustc doesn't treat casting to a byte array as reading a field.
+#[allow(dead_code)]
 #[repr(packed)]
 struct Elf64Ehdr {
     e_ident: [u8; EI_NIDENT],
@@ -177,6 +179,7 @@ impl Elf64Ehdr {
     }
 }
 
+#[allow(dead_code)]
 #[repr(packed)]
 struct Elf64Phdr {
     p_type: Elf64Word,
@@ -246,6 +249,7 @@ impl Elf64Phdr {
     }
 }
 
+#[allow(dead_code)]
 #[repr(packed)]
 struct Elf64Shdr {
     sh_name: Elf64Word,
