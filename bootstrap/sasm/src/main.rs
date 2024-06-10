@@ -2,13 +2,14 @@ mod elf;
 mod symbols;
 mod tokenizer;
 
-use tokenizer::{get_symbol, get_value, Token};
+use tokenizer::{get_symbol, get_value, Token, TokenInfo};
 
-use std::env;
+use std::{env, mem};
 use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::ErrorKind as IOError;
 use std::os::unix::fs::OpenOptionsExt;
+use std::path::PathBuf;
 use std::process::exit;
 
 fn main() {
@@ -49,17 +50,9 @@ fn main() {
     };
 
     symbols::init();
-    let input = match fs::read(&input_file) {
-        Ok(v) => v,
-        Err(e) => match e.kind() {
-            IOError::NotFound => panic!("No such file `{}`", input_file),
-            IOError::PermissionDenied => panic!("Permission denied trying to open file `{}`", input_file),
-            IOError::OutOfMemory => panic!("Not enough memory to read file `{}`", input_file),
-            _ => panic!("Unknown error reading file `{}`: {}", input_file, e),
-        },
-    };
-    let tokenizer::Tokenizer { input, tokens, err, filename, .. } = tokenizer::tokenize(input, input_file);
-    let (program, data, rewrites) = assemble(input, filename, tokens, err);
+    let input = read_file(&input_file).unwrap_or_else(|| exit(1));
+    let tokenizer::Tokenizer { input, tokens, token_info, err, filename, .. } = tokenizer::tokenize(input, input_file);
+    let (program, data, rewrites) = assemble(input, filename, tokens, token_info, err);
     let e = if debug {
         elf::Elf::new(program, data, rewrites)
     } else {
@@ -91,21 +84,51 @@ fn main() {
     */
 }
 
-fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, err: bool) -> (Vec<u32>, Vec<u8>, Vec<(usize, usize)>) {
+fn read_file<P: AsRef<std::path::Path>>(path: P) -> Option<Vec<u8>> {
+    let path = path.as_ref();
+    match fs::read(path) {
+        Ok(v) => Some(v),
+        Err(e) => {
+            match e.kind() {
+                IOError::NotFound => {
+                    eprintln!("No such file `{}`", path.display());
+                }
+                IOError::PermissionDenied => {
+                    eprintln!("Permission denied trying to open file `{}`", path.display());
+                }
+                IOError::OutOfMemory => {
+                    eprintln!("Not enough memory to read file `{}`", path.display());
+                }
+                _ => {
+                    eprintln!("Unknown error reading file `{}`: {}", path.display(), e);
+                }
+            };
+            None
+        }
+    }
+}
+
+fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, token_info: Vec<TokenInfo>, err: bool) -> (Vec<u32>, Vec<u8>, Vec<(usize, usize)>) {
     let mut root = Module::new(0, None, false);
-    let name = filename.rsplitn(2, '.').last().unwrap().as_bytes().to_vec();
-    root.children.insert(get_symbol(name), Unit::Module(1));
+    let mut path: PathBuf = filename.clone().into();
+    path.pop();
+    root.path = path;
+    let name = get_symbol(filename.rsplitn(2, '.').last().unwrap().as_bytes().to_vec());
+    root.children.insert(name, Unit::Module(1));
 
     let mut asm = Asm {
         input: input,
         filename: filename,
         tokens: tokens,
+        token_info: token_info,
         position: 0,
         err: err,
         modules: vec![root, Module::new(1, Some(0), true)],
         module: 1,
         data: Vec::new(),
+        import_files: HashMap::new(),
     };
+    asm.add_label(name);
     loop {
         asm.assemble();
         if asm.peek().is_none() {
@@ -127,11 +150,13 @@ struct Asm {
     input: Vec<u8>,
     filename: String,
     tokens: Vec<Token>,
+    token_info: Vec<TokenInfo>,
     position: usize,
     err: bool,
     modules: Vec<Module>,
     module: usize,
     data: Vec<u8>,
+    import_files: HashMap<PathBuf, Symbol>,
 }
 
 type Symbol = usize;
@@ -140,6 +165,7 @@ struct Module {
     parent: Option<usize>,
     children: HashMap<Symbol, Unit>,
     filep: bool,
+    path: PathBuf,
     location: usize,
     code: Vec<u32>,
     labels: HashMap<Symbol, usize>,
@@ -155,6 +181,7 @@ impl Module {
             parent: parent,
             children: HashMap::new(),
             filep: filep,
+            path: PathBuf::new(),
             location: 0,
             code: Vec::new(),
             labels: HashMap::new(),
@@ -251,8 +278,6 @@ impl Asm {
                 }
             }
         }
-
-        // handle labels
     }
 
     fn finish(&mut self) -> (Vec<u32>, Vec<u8>, Vec<(usize, usize)>) {
@@ -305,7 +330,6 @@ impl Asm {
             }
         }
 
-        println!("{:x?}", code);
         // TODO
         (code, self.data.clone(), rewrites)
     }
@@ -324,6 +348,205 @@ impl Asm {
     }
 
     fn handle_import(&mut self) {
+        let path = match self.next() {
+            Some(Token::Symbol(s)) => vec![s],
+            Some(Token::LParen) => self.unwrap_path(),
+            Some(Token::String(_, _)) => {
+                eprintln!("Import path should consist of identifiers, not strings.");
+                self.err = true;
+                return self.skip_opcode();
+            }
+            Some(Token::RParen) => {
+                eprintln!("Empty import statement.");
+                self.err = true;
+                return;
+            }
+            Some(_) => {
+                eprintln!("Bad arguments in import statement.");
+                self.err = true;
+                return self.skip_opcode();
+            }
+            None => {
+                eprintln!("Unexpected EOF in import statement.");
+                self.err = true;
+                return;
+            }
+        };
+        match self.next() {
+            Some(Token::RParen) => (),
+            Some(Token::LParen) => {
+                self.position -= 1;
+                eprintln!("Forgot closing parenthesis in import statement.");
+                eprintln!("\tNote: each import requires its own import statement.");
+                self.err = true;
+            }
+            Some(_) => {
+                eprintln!("Forgot closing parenthesis in import statement.");
+                eprintln!("\tNote: each import requires its own import statement.");
+                self.err = true;
+                self.skip_opcode();
+            }
+            None => {
+                eprintln!("Unexpected EOF in import statement.");
+                self.err = true;
+            }
+        }
+        if path.is_empty() {
+            eprintln!("Empty path in import statement.");
+            self.err = true;
+            return;
+        }
+
+        if path.len() == 1 {
+            if path[0] == symbols::CARAT || path[0] == symbols::STAR {
+                eprintln!("Invalid path in import statement.");
+                self.err = true;
+                return;
+            }
+            let mut existp = false;
+            let mut m = &self.modules[self.module];
+            while !m.filep {
+                if m.children.contains_key(&path[0]) {
+                    existp = true;
+                }
+                // shitty bc
+                let p = m.parent.unwrap();
+                m = &self.modules[p];
+            }
+            let p = m.parent.unwrap();
+            let mut p = self.modules[p].path.clone();
+            p.push(get_value(path[0]));
+
+            if p.is_dir() {
+                return self.import_dir(path[0], p);
+            } else if { p.set_extension("sasm"); !p.is_file() } {
+                if existp {
+                    eprintln!("Unnecessary import statement");
+                    self.err = true;
+                    return;
+                } else {
+                    eprintln!("File `{}` does not exist.", p.display());
+                    self.err = true;
+                    return;
+                }
+            }
+
+            return self.import_file(path[0], p);
+        }
+
+        // TODO: handle path
+        eprintln!("unimplemtened");
+    }
+
+    fn import_dir(&mut self, path: Symbol, file_path: PathBuf) {
+        if let Some(id) = self.import_files.get(&file_path).copied() {
+            match self.get_mod().children.get(&path) {
+                Some(Unit::Module(i)) if *i == id => eprintln!("Double import statement"),
+                Some(_) => {
+                    eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
+                    self.err = true;
+                }
+                None => { self.get_mod().children.insert(path, Unit::Module(id)); },
+            }
+            return;
+        }
+
+        let m_id = self.modules.len();
+        if self.get_mod().children.contains_key(&path) {
+            eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
+            self.err = true;
+        } else {
+            self.get_mod().children.insert(path, Unit::Module(m_id));
+        }
+        self.import_files.insert(file_path.clone(), m_id);
+        // TODO: should filep be set?
+        let mut module = Module::new(m_id, Some(self.module), false);
+        module.path = file_path.clone();
+        self.modules.push(module);
+        self.module = m_id;
+
+        let dir = if let Ok(d) = fs::read_dir(&file_path) {
+            d
+        } else {
+            eprintln!("Unable to read directory `{}`", file_path.display());
+            self.err = true;
+            return;
+        };
+        for f in dir {
+            // TODO
+            let f = f.unwrap();
+            if f.file_type().unwrap().is_dir() {
+                let f = f.path();
+                let mut p = file_path.clone();
+                p.push(f.file_name().unwrap());
+                let path = get_symbol(f.file_stem().unwrap().as_encoded_bytes().to_vec());
+                self.import_dir(path, p);
+            } else {
+                let f = f.path();
+                if Some("sasm".as_ref()) != f.extension() {
+                    continue;
+                }
+                let mut p = file_path.clone();
+                p.push(f.file_name().unwrap());
+                let path = get_symbol(f.file_stem().unwrap().as_encoded_bytes().to_vec());
+                self.import_file(path, p);
+            }
+        }
+
+        self.module = self.get_mod().parent.unwrap();
+    }
+
+    fn import_file(&mut self, path: Symbol, file_path: PathBuf) {
+        if let Some(id) = self.import_files.get(&file_path).copied() {
+            match self.get_mod().children.get(&path) {
+                Some(Unit::Module(i)) if *i == id => eprintln!("Double import statement"),
+                Some(_) => {
+                    eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
+                    self.err = true;
+                }
+                None => { self.get_mod().children.insert(path, Unit::Module(id)); },
+            }
+            return;
+        }
+
+        // shitty bc
+        let m_id = self.modules.len();
+        if self.get_mod().children.contains_key(&path) {
+            eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
+            self.err = true;
+        } else {
+            self.get_mod().children.insert(path, Unit::Module(m_id));
+        }
+        self.import_files.insert(file_path.clone(), m_id);
+        let module = Module::new(m_id, Some(self.module), true);
+        self.module = m_id;
+        self.modules.push(module);
+        self.add_label(path);
+
+        let include_input = if let Some(i) = read_file(&file_path) {
+            i
+        } else {
+            self.module = self.get_mod().parent.unwrap();
+            self.err = true;
+            return;
+        };
+
+        let tokenizer::Tokenizer { mut input, mut tokens, mut token_info, err, mut filename, .. } = tokenizer::tokenize(include_input, file_path.display().to_string());
+        self.err |= err;
+        mem::swap(&mut self.input, &mut input);
+        mem::swap(&mut self.tokens, &mut tokens);
+        mem::swap(&mut self.token_info, &mut token_info);
+        mem::swap(&mut self.filename, &mut filename);
+        let position = self.position;
+        self.position = 0;
+        self.assemble();
+        self.position = position;
+        mem::swap(&mut self.input, &mut input);
+        mem::swap(&mut self.tokens, &mut tokens);
+        mem::swap(&mut self.token_info, &mut token_info);
+        mem::swap(&mut self.filename, &mut filename);
+
+        self.module = self.get_mod().parent.unwrap();
     }
 
     fn handle_module(&mut self) {
@@ -440,19 +663,27 @@ impl Asm {
                 self.err = true;
             }
         }
-        let include_input = fs::read(&filename).unwrap();
-        let tokenizer::Tokenizer { mut input, mut tokens, err, mut filename, .. } = tokenizer::tokenize(include_input, filename);
+        let include_input = if let Some(i) = read_file(&filename) {
+            i
+        } else {
+            self.err = true;
+            return;
+        };
+
+        let tokenizer::Tokenizer { mut input, mut tokens, mut token_info, err, mut filename, .. } = tokenizer::tokenize(include_input, filename);
         self.err |= err;
-        std::mem::swap(&mut self.input, &mut input);
-        std::mem::swap(&mut self.tokens, &mut tokens);
-        std::mem::swap(&mut self.filename, &mut filename);
+        mem::swap(&mut self.input, &mut input);
+        mem::swap(&mut self.tokens, &mut tokens);
+        mem::swap(&mut self.token_info, &mut token_info);
+        mem::swap(&mut self.filename, &mut filename);
         let position = self.position;
         self.position = 0;
         self.assemble();
         self.position = position;
-        std::mem::swap(&mut self.input, &mut input);
-        std::mem::swap(&mut self.tokens, &mut tokens);
-        std::mem::swap(&mut self.filename, &mut filename);
+        mem::swap(&mut self.input, &mut input);
+        mem::swap(&mut self.tokens, &mut tokens);
+        mem::swap(&mut self.token_info, &mut token_info);
+        mem::swap(&mut self.filename, &mut filename);
     }
 
     fn handle_define(&mut self) {
@@ -606,7 +837,7 @@ impl Asm {
             match t {
                 Token::RParen => return,
                 Token::LParen => {
-                    // TODO
+                    // TODO check for newline
                     self.position -= 1;
                     return;
                 }
@@ -1333,7 +1564,7 @@ impl Program {
                     let module_name = self.path_to_string();
                     self.path.pop();
                     let mut module = self.module_stack.pop().unwrap();
-                    std::mem::swap(&mut module, &mut self.module);
+                    mem::swap(&mut module, &mut self.module);
                     self.modules.insert(module_name, module);
                 } else {
                     unreachable!();
@@ -1350,9 +1581,9 @@ impl Program {
             let import_tokens = tokenizer::Tokenizer::tokenize(&import).unwrap();
             self.path.push(path);
             let mut module = Module::new();
-            std::mem::swap(&mut module, &mut self.module);
+            mem::swap(&mut module, &mut self.module);
             self.assemble(import_tokens, &import);
-            std::mem::swap(&mut module, &mut self.module);
+            mem::swap(&mut module, &mut self.module);
             self.modules.insert(self.path_to_string(), module);
             self.path.pop();
         }
