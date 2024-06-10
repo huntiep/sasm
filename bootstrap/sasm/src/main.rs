@@ -414,31 +414,137 @@ impl Asm {
                 m = &self.modules[p];
             }
             let p = m.parent.unwrap();
-            let mut p = self.modules[p].path.clone();
-            p.push(get_value(path[0]));
+            let mut file_path = self.modules[p].path.clone();
+            file_path.push(get_value(path[0]));
 
-            if p.is_dir() {
-                return self.import_dir(path[0], p);
-            } else if { p.set_extension("sasm"); !p.is_file() } {
+            if file_path.is_dir() {
+                return self.import_dir(path[0], file_path, None);
+            } else if { file_path.set_extension("sasm"); !file_path.is_file() } {
                 if existp {
                     eprintln!("Unnecessary import statement");
                     self.err = true;
                     return;
                 } else {
-                    eprintln!("File `{}` does not exist.", p.display());
+                    eprintln!("File `{}` does not exist.", file_path.display());
                     self.err = true;
                     return;
                 }
             }
 
-            return self.import_file(path[0], p);
+            return self.import_file(path[0], file_path, None);
         }
 
-        // TODO: handle path
-        eprintln!("unimplemtened");
+        let mut m = &self.modules[self.module];
+        let mut i = 0;
+        while i < path.len() {
+            let p = path[i];
+            if p == symbols::CARAT {
+                i += 1;
+                let p = if let Some(p) = m.parent {
+                    p
+                } else {
+                    eprintln!("Path jumped past root.");
+                    self.err = true;
+                    return;
+                };
+                m = &self.modules[p];
+            } else {
+                break;
+            }
+        }
+
+        while i < path.len() {
+            let p = path[i];
+            i += 1;
+            if p == symbols::CARAT {
+                eprintln!("Bad path, can only move up (`^`) at beginning of path.");
+                self.err = true;
+                return;
+            }
+
+            if p == symbols::STAR && i != path.len() {
+                eprintln!("Bad path, `*` can only appear as the final element.");
+                self.err = true;
+                return;
+            } else if p == symbols::STAR {
+                for (k, v) in m.children.clone() {
+                    if self.get_mod().children.contains_key(&k) {
+                        eprintln!("`{}` is already defined in this scope.", get_value(k));
+                        self.err = true;
+                    } else {
+                        self.get_mod().children.insert(k, v);
+                    }
+                }
+                return;
+            }
+
+            match m.children.get(&p).copied() {
+                v @ Some(Unit::Bytes(_, _)) | v @ Some(Unit::Constant(_)) => {
+                    if i == path.len() {
+                        if self.get_mod().children.contains_key(&p) {
+                            eprintln!("`{}` is already defined in this scope.", get_value(p));
+                            self.err = true;
+                        } else {
+                            self.get_mod().children.insert(p, v.unwrap());
+                        }
+                    } else {
+                        eprintln!("Path resolved to variable/global partway.");
+                        self.err = true;
+                    }
+                    return;
+                }
+                Some(Unit::Module(id)) => if i == path.len() {
+                    if self.get_mod().children.contains_key(&p) {
+                        eprintln!("`{}` is already defined in this scope.", get_value(p));
+                        self.err = true;
+                    } else {
+                        self.get_mod().children.insert(p, Unit::Module(id));
+                    }
+                    return;
+                } else {
+                    m = &self.modules[id]
+                },
+                None => {
+                    let mut m2 = m;
+                    let mut existp = false;
+                    while !m2.filep {
+                        if m2.children.contains_key(&p) {
+                            existp = true;
+                        }
+                        // shitty bc
+                        let p = m2.parent.unwrap();
+                        m2 = &self.modules[p];
+                    }
+                    let ptr = m2.parent.unwrap();
+                    let mut file_path = self.modules[ptr].path.clone();
+                    file_path.push(get_value(p));
+                    if file_path.is_dir() {
+                        let m_id = self.modules.len();
+                        self.import_dir(p, file_path, Some(ptr));
+                        m = &self.modules[m_id];
+                        //continue;
+                    } else if { file_path.set_extension("sasm"); !file_path.is_file() } {
+                        // TODO: i = path.len
+                        if existp {
+                            eprintln!("Unnecessary import statement");
+                            self.err = true;
+                            return;
+                        } else {
+                            eprintln!("File `{}` does not exist.", file_path.display());
+                            self.err = true;
+                            return;
+                        }
+                    } else {
+                        let m_id = self.modules.len();
+                        self.import_file(p, file_path, Some(ptr));
+                        m = &self.modules[m_id];
+                    }
+                }
+            }
+        }
     }
 
-    fn import_dir(&mut self, path: Symbol, file_path: PathBuf) {
+    fn import_dir(&mut self, path: Symbol, file_path: PathBuf, parent: Option<usize>) {
         if let Some(id) = self.import_files.get(&file_path).copied() {
             match self.get_mod().children.get(&path) {
                 Some(Unit::Module(i)) if *i == id => eprintln!("Double import statement"),
@@ -452,17 +558,19 @@ impl Asm {
         }
 
         let m_id = self.modules.len();
-        if self.get_mod().children.contains_key(&path) {
+        if parent.is_none() && self.get_mod().children.contains_key(&path) {
             eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
             self.err = true;
-        } else {
+        } else if parent.is_none() {
             self.get_mod().children.insert(path, Unit::Module(m_id));
         }
         self.import_files.insert(file_path.clone(), m_id);
         // TODO: should filep be set?
-        let mut module = Module::new(m_id, Some(self.module), false);
+        let parent = parent.unwrap_or(self.module);
+        let mut module = Module::new(m_id, Some(parent), false);
         module.path = file_path.clone();
         self.modules.push(module);
+        let old_id = self.module;
         self.module = m_id;
 
         let dir = if let Ok(d) = fs::read_dir(&file_path) {
@@ -480,7 +588,7 @@ impl Asm {
                 let mut p = file_path.clone();
                 p.push(f.file_name().unwrap());
                 let path = get_symbol(f.file_stem().unwrap().as_encoded_bytes().to_vec());
-                self.import_dir(path, p);
+                self.import_dir(path, p, None);
             } else {
                 let f = f.path();
                 if Some("sasm".as_ref()) != f.extension() {
@@ -489,14 +597,14 @@ impl Asm {
                 let mut p = file_path.clone();
                 p.push(f.file_name().unwrap());
                 let path = get_symbol(f.file_stem().unwrap().as_encoded_bytes().to_vec());
-                self.import_file(path, p);
+                self.import_file(path, p, None);
             }
         }
 
-        self.module = self.get_mod().parent.unwrap();
+        self.module = old_id;
     }
 
-    fn import_file(&mut self, path: Symbol, file_path: PathBuf) {
+    fn import_file(&mut self, path: Symbol, file_path: PathBuf, parent: Option<usize>) {
         if let Some(id) = self.import_files.get(&file_path).copied() {
             match self.get_mod().children.get(&path) {
                 Some(Unit::Module(i)) if *i == id => eprintln!("Double import statement"),
@@ -511,14 +619,16 @@ impl Asm {
 
         // shitty bc
         let m_id = self.modules.len();
-        if self.get_mod().children.contains_key(&path) {
+        if parent.is_none() && self.get_mod().children.contains_key(&path) {
             eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
             self.err = true;
-        } else {
+        } else if parent.is_none() {
             self.get_mod().children.insert(path, Unit::Module(m_id));
         }
         self.import_files.insert(file_path.clone(), m_id);
-        let module = Module::new(m_id, Some(self.module), true);
+        let parent = parent.unwrap_or(self.module);
+        let module = Module::new(m_id, Some(parent), true);
+        let old_id = self.module;
         self.module = m_id;
         self.modules.push(module);
         self.add_label(path);
@@ -546,7 +656,7 @@ impl Asm {
         mem::swap(&mut self.token_info, &mut token_info);
         mem::swap(&mut self.filename, &mut filename);
 
-        self.module = self.get_mod().parent.unwrap();
+        self.module = old_id;
     }
 
     fn handle_module(&mut self) {
@@ -1342,8 +1452,8 @@ impl Asm {
         let mut i = 0;
         while i < path.len() {
             let p = path[i];
-            i += 1;
             if p == symbols::CARAT {
+                i += 1;
                 let p = if let Some(p) = m.parent {
                     p
                 } else {
@@ -1352,9 +1462,19 @@ impl Asm {
                     return None;
                 };
                 m = &self.modules[p];
-                continue;
+            } else {
+                break;
             }
+        }
 
+        while i < path.len() {
+            let p = path[i];
+            i += 1;
+            if p == symbols::CARAT {
+                eprintln!("Bad path, can only move up (`^`) at beginning of path.");
+                self.err = true;
+                return None;
+            }
             match m.children.get(&p) {
                 v @ Some(Unit::Bytes(_, _)) | v @ Some(Unit::Constant(_)) => {
                     if i == path.len() {
