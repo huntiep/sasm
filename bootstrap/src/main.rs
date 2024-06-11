@@ -54,9 +54,9 @@ fn main() {
     let tokenizer::Tokenizer { input, tokens, token_info, err, filename, .. } = tokenizer::tokenize(input, input_file);
     let (program, data, rewrites) = assemble(input, filename, tokens, token_info, err);
     let e = if debug {
-        elf::Elf::new(program, data, rewrites)
-    } else {
         elf::Elf::new_debug(program, data, rewrites)
+    } else {
+        elf::Elf::new(program, data, rewrites)
     };
     let f = OpenOptions::new()
         .create(true)
@@ -118,9 +118,9 @@ fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, token_info: Ve
         if asm.peek().is_none() {
             break;
         }
-        eprintln!("Unxepected closing parenthesis");
+        eprintln!("Unxepected closing parenthesis in file `{}` at line {}.", asm.filename, asm.token_info[asm.position].line);
         asm.err = true;
-
+        asm.position += 1;
     }
     let (code, data, rewrites) = asm.finish();
     if asm.err {
@@ -293,7 +293,15 @@ impl Asm {
                     self.err = true;
                     continue;
                 }
-                None => continue,
+                None => {
+                    eprint!("Unknown module/label `");
+                    for p in path {
+                        eprint!("{} ", get_value(p));
+                    }
+                    eprintln!("`.");
+                    self.err = true;
+                    continue;
+                }
             };
 
             let imm = (p as isize - i as isize) as i32;
@@ -878,10 +886,11 @@ impl Asm {
                 } else {
                     self.get_mod().children.insert(ident, Unit::Bytes(start, v.len()));
                 }
+                self.data.append(&mut v);
+                // TODO: move above
                 while self.data.len() % 8 != 0 {
                     self.data.push(0);
                 }
-                self.data.append(&mut v);
             }
             Some(Token::String(start, end)) => {
                 let mut s = self.get_string(start, end);
@@ -892,10 +901,11 @@ impl Asm {
                 } else {
                     self.get_mod().children.insert(ident, Unit::Bytes(start, s.len()));
                 }
+                self.data.append(&mut s);
+                // TODO: move above
                 while self.data.len() % 8 != 0 {
                     self.data.push(0);
                 }
-                self.data.append(&mut s);
             }
             Some(Token::RParen) => {
                 // TODO
@@ -1125,13 +1135,13 @@ impl Asm {
             },
             Some(Token::RParen) | Some(Token::LParen) => {
                 self.position -= 1;
-                eprintln!("Expected register in instruction");
+                eprintln!("Expected register in instruction in file `{}`", self.filename);
                 self.err = true;
                 0
             }
             Some(_) => {
                 // TODO
-                eprintln!("Expected register in instruction");
+                eprintln!("Expected register in instruction in file `{}`", self.filename);
                 self.err = true;
                 0
             }
@@ -1184,7 +1194,8 @@ impl Asm {
                         return 0;
                     }
                 }
-                match self.next() {
+                // len
+                let len = match self.next() {
                     Some(Token::Symbol(s)) => {
                         match self.get_mod().children.get(&s) {
                             Some(Unit::Bytes(_, l)) => *l as u32,
@@ -1227,18 +1238,37 @@ impl Asm {
                         self.err = true;
                         0
                     }
+                };
+
+                match self.next() {
+                    Some(Token::RParen) => (),
+                    Some(Token::LParen) => {
+                        self.position -= 1;
+                        eprintln!("Unclosed instruction.");
+                        self.err = true;
+                    }
+                    Some(_) => {
+                        eprintln!("Too many arguments or missing parenthesis in instruction.");
+                        self.err = true;
+                        self.skip_opcode();
+                    }
+                    None => {
+                        eprintln!("Unclosed instruction at end of file.");
+                        self.err = true;
+                    }
                 }
+                len
             }
             Some(Token::Symbol(s)) => {
-                match self.get_mod().children.get(&s) {
-                    Some(Unit::Constant(i)) => *i as i32 as u32,
+                match self.follow_path(&[s]) {
+                    Some(Unit::Constant(i)) => i as i32 as u32,
                     Some(_) => {
                         eprintln!("Variable must be a constant.");
                         self.err = true;
                         0
                     }
                     None => {
-                        eprintln!("Unknown variable.");
+                        eprintln!("Unknown variable in file `{}`.", self.filename);
                         self.err = true;
                         0
                     }
@@ -1322,6 +1352,7 @@ impl Asm {
 
         let (mut imm, reg) = match self.peek() {
             Some(Token::Symbol(s)) => if s <= symbols::X31 {
+                self.next();
                 (self.unwrap_imm(), s as u32 - 1)
             } else {
                 (self.unwrap_imm(), self.unwrap_register())

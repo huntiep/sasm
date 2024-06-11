@@ -39,9 +39,9 @@ pub enum Token {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct TokenInfo {
-    line: usize,
-    start: usize,
-    end: usize,
+    pub line: usize,
+    pub start: usize,
+    pub end: usize,
 }
 
 pub fn tokenize(input: Vec<u8>, filename: String) -> Tokenizer {
