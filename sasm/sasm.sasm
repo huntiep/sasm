@@ -97,7 +97,7 @@ start
     (ecall)
 
     load-default-output-name
-        (define default-output-name "bin.elf\0")
+        (defcon default-output-name "bin.elf\0")
         (la x6 default-output-name)
         (jal x0 open-output-name)
 
@@ -899,7 +899,7 @@ start
 
         (jal x0 error)
 
-    (define funct3-table #(0 0 4 6 7 1 5 5 2 3 0 4 6    ;; r
+    (defcon funct3-table #(0 0 4 6 7 1 5 5 2 3 0 4 6    ;; r
                            0 0 4 6 7 1 5 5 2 3          ;; i
                            0 1 2 3 4 5 6 0              ;; i2 - last item is gap for la
                            0 1 2 3                      ;; s
@@ -1531,7 +1531,7 @@ start
     (define DATA_LOCATION 6291456)
     ;; 64 + 56 + 56
     (define program_offset 176)
-    (define ehdr #(127 69 76 70 2 1 1 0 0 0 0 0 0 0 0 0
+    (defcon ehdr #(127 69 76 70 2 1 1 0 0 0 0 0 0 0 0 0
                    2 0 ;; e_type
                    243 0 ;; e_machine
                    1 0 0 0 ;; e_version
@@ -1546,7 +1546,7 @@ start
                    0 0 ;; e_num
                    0 0)) ;; e_shstrndx
 
-    (define phdr-text #(1 0 0 0 ;; p_type
+    (defvar phdr-text #(1 0 0 0 ;; p_type
                         5 0 0 0 ;; p_flags
                         0 0 0 0 0 0 0 0 ;; p_offset = 0
                         0 0 64 0 0 0 0 0 ;; p_vaddr = ENTRY_LOCATION
@@ -1555,7 +1555,7 @@ start
                         0 0 0 0 0 0 0 0 ;; p_memsz
                         0 16 0 0 0 0 0 0)) ;; p_align
 
-    (define phdr-data #(1 0 0 0 ;; p_type
+    (defvar phdr-data #(1 0 0 0 ;; p_type
                         6 0 0 0 ;; p_flags
                         0 0 0 0 0 0 0 0 ;; p_offset
                         0 0 0 0 0 0 0 0 ;; p_vaddr

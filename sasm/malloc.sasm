@@ -1,8 +1,8 @@
 (import (syscalls *))
 
 ;; Hack to avoid making global ints for now.
-(define HEAP-START "\0\0\0\0\0\0\0\0")
-(define HEAP-END "\0\0\0\0\0\0\0\0")
+(defvar HEAP-START 0)
+(defvar HEAP-END 0)
 (module init
     (add x10 x0 x0)
     (addi x17 x0 SYS_BRK)

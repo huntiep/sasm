@@ -52,11 +52,11 @@ fn main() {
     symbols::init();
     let input = read_file(&input_file).unwrap_or_else(|| exit(1));
     let tokenizer::Tokenizer { input, tokens, token_info, err, filename, .. } = tokenizer::tokenize(input, input_file);
-    let (program, data, rewrites) = assemble(input, filename, tokens, token_info, err);
+    let (program, data, rodata, rewrites) = assemble(input, filename, tokens, token_info, err);
     let e = if debug {
-        elf::Elf::new_debug(program, data, rewrites)
+        elf::Elf::new_debug(program, data, rodata, rewrites)
     } else {
-        elf::Elf::new(program, data, rewrites)
+        elf::Elf::new(program, data, rodata, rewrites)
     };
     let f = OpenOptions::new()
         .create(true)
@@ -92,7 +92,9 @@ fn read_file<P: AsRef<std::path::Path>>(path: P) -> Option<Vec<u8>> {
     }
 }
 
-fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, token_info: Vec<TokenInfo>, err: bool) -> (Vec<u32>, Vec<u8>, Vec<(usize, usize)>) {
+fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, token_info: Vec<TokenInfo>, err: bool)
+    -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>)
+{
     let mut root = Module::new(0, None, false);
     let mut path: PathBuf = filename.clone().into();
     path.pop();
@@ -110,6 +112,7 @@ fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, token_info: Ve
         modules: vec![root, Module::new(1, Some(0), true)],
         module: 1,
         data: Vec::new(),
+        rodata: Vec::new(),
         import_files: HashMap::new(),
     };
     asm.add_label(name);
@@ -122,11 +125,11 @@ fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, token_info: Ve
         asm.err = true;
         asm.position += 1;
     }
-    let (code, data, rewrites) = asm.finish();
+    let (code, data, rodata, rewrites) = asm.finish();
     if asm.err {
         exit(1);
     }
-    (code, data, rewrites)
+    (code, data, rodata, rewrites)
 }
 
 
@@ -140,6 +143,7 @@ struct Asm {
     modules: Vec<Module>,
     module: usize,
     data: Vec<u8>,
+    rodata: Vec<u8>,
     import_files: HashMap<PathBuf, Symbol>,
 }
 
@@ -155,7 +159,7 @@ struct Module {
     labels: HashMap<Symbol, usize>,
     jumps: Vec<(Symbol, usize, JumpType)>,
     refs: Vec<(Vec<Symbol>, usize, JumpType)>,
-    rewrites: Vec<(usize, usize)>,
+    rewrites: Vec<(usize, usize, bool)>,
 }
 
 impl Module {
@@ -218,7 +222,7 @@ enum JumpType {
 enum Unit {
     Constant(i64),
     // position in data, len
-    Bytes(usize, usize),
+    Bytes(usize, usize, bool),
     //Bytes(Vec<u8>),
     Module(usize),
 }
@@ -231,6 +235,7 @@ impl Asm {
                 Token::LParen => match self.next() {
                     Some(Token::Symbol(s)) if s == symbols::INCLUDE => self.handle_include(),
                     Some(Token::Symbol(s)) if s == symbols::DEFINE => self.handle_define(),
+                    Some(Token::Symbol(s)) if s == symbols::DEFCON || s == symbols::DEFVAR => self.handle_defcon_var(s == symbols::DEFCON),
                     Some(Token::Symbol(s)) if s == symbols::MODULE => self.handle_module(),
                     Some(Token::Symbol(s)) if s == symbols::IMPORT => self.handle_import(),
                     Some(Token::Symbol(s)) => self.handle_opcode(s),
@@ -264,7 +269,7 @@ impl Asm {
         }
     }
 
-    fn finish(&mut self) -> (Vec<u32>, Vec<u8>, Vec<(usize, usize)>) {
+    fn finish(&mut self) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>) {
         let mut code = Vec::new();
         let mut rewrites = Vec::new();
         let mut refs = Vec::new();
@@ -277,8 +282,8 @@ impl Asm {
                 refs.push((module.id, path.clone(), i + (code.len() * 4), *ty));
             }
             self.module = module.id;
-            for (i, p) in &module.rewrites {
-                rewrites.push((i + code.len(), *p));
+            for (i, p, constant) in &module.rewrites {
+                rewrites.push((i + code.len(), *p, *constant));
             }
             module.location = code.len() * 4;
             code.append(&mut module.code);
@@ -323,7 +328,7 @@ impl Asm {
         }
 
         // TODO
-        (code, self.data.clone(), rewrites)
+        (code, self.data.clone(), self.rodata.clone(), rewrites)
     }
 
     fn add_label(&mut self, label: usize) {
@@ -473,7 +478,7 @@ impl Asm {
             }
 
             match m.children.get(&p).copied() {
-                v @ Some((_, Unit::Bytes(_, _))) | v @ Some((_, Unit::Constant(_))) => {
+                v @ Some((_, Unit::Bytes(_, _, _))) | v @ Some((_, Unit::Constant(_))) => {
                     let (importp, v) = v.unwrap();
                     // TODO
                     if importp {
@@ -816,27 +821,88 @@ impl Asm {
         mem::swap(&mut self.filename, &mut filename);
     }
 
-    fn handle_define(&mut self) {
-        let ident = match self.next() {
-            Some(Token::Symbol(s)) => s,
+    fn unwrap_ident(&mut self) -> Option<Symbol> {
+        match self.next() {
+            Some(Token::Symbol(s)) => Some(s),
             Some(Token::RParen) => {
                 // TODO
                 eprintln!("Definition must have an identifier and value.");
                 self.err = true;
-                return;
+                None
             }
             Some(_) => {
                 // TODO
                 eprintln!("Expected identifier.");
                 self.err = true;
-                0
+                Some(0)
             }
             None => {
                 // TODO
                 eprintln!("Unexpected EOF.");
                 self.err = true;
-                return;
+                None
             }
+        }
+    }
+
+    fn unwrap_array(&mut self) -> Option<Vec<u8>> {
+        match self.next() {
+            Some(Token::LParen) => (),
+            Some(Token::RParen) => {
+                eprintln!("Unexepected `#` in definition, definition incomplete.");
+                self.err = true;
+                return None;
+            }
+            Some(_) => {
+                eprintln!("Unexepected `#` in definition.");
+                self.err = true;
+                self.skip_opcode();
+                return None;
+            }
+            None => {
+                eprintln!("Unexepected `#` at end of file.");
+                self.err = true;
+                return None;
+            }
+        }
+        let mut v = Vec::new();
+        loop {
+            match self.next() {
+                Some(Token::RParen) => break,
+                Some(Token::Integer(i)) => {
+                    if i < 0 || i >= 256 {
+                        eprintln!("Array literals must consist of u8 integers, `{}` is out of range.", i);
+                        self.err = true;
+                    }
+                    v.push(i as u8);
+                }
+                Some(Token::Symbol(_)) => {
+                    eprintln!("Array literals must consist of u8 integers, cannot use variables.");
+                    self.err = true;
+                }
+                Some(Token::Char(_)) => {
+                    eprintln!("Array literals must consist of u8 integers.");
+                    self.err = true;
+                }
+                Some(_) => {
+                    eprintln!("Array literals must consist of u8 integers.");
+                    self.err = true;
+                }
+                None => {
+                    eprintln!("Unexepected EOF in array literal.");
+                    self.err = true;
+                    return None;
+                }
+            }
+        }
+        Some(v)
+    }
+
+    fn handle_define(&mut self) {
+        let ident = if let Some(i) = self.unwrap_ident() {
+            i
+        } else {
+            return;
         };
 
         // TODO
@@ -854,84 +920,126 @@ impl Asm {
             } else {
                 self.get_mod().children.insert(ident, (false, Unit::Constant(c as i64)));
             },
+            Some(Token::Pound) | Some(Token::String(_, _)) => {
+                eprintln!("Define is only for build-time constants, did you mean `defcon`/`defvar`?");
+                self.err = true;
+            }
+            Some(Token::RParen) => {
+                // TODO
+                eprintln!("Definition must have a value.");
+                self.err = true;
+                return;
+            }
+            Some(_) => {
+                // TODO
+                eprintln!("Define must be a constant.");
+                self.err = true;
+            }
+            None => {
+                // TODO
+                eprintln!("Unexpected EOF.");
+                self.err = true;
+                return;
+            }
+        }
+
+        if Some(Token::RParen) != self.next() {
+            eprintln!("Missing closing parenthesis.");
+            self.err = true;
+        }
+    }
+
+    fn handle_defcon_var(&mut self, constant: bool) {
+        let ident = if let Some(i) = self.unwrap_ident() {
+            i
+        } else {
+            return;
+        };
+
+        match self.next() {
+            Some(Token::Integer(i)) => if self.get_mod().children.contains_key(&ident) {
+                eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
+                self.err = true;
+            } else {
+                let d = if constant {
+                    &mut self.rodata
+                } else {
+                    &mut self.data
+                };
+                while d.len() % 8 != 0 {
+                    d.push(0);
+                }
+                let start = d.len();
+                d.extend_from_slice(&i.to_le_bytes());
+                self.get_mod().children.insert(ident, (false, Unit::Bytes(start, 8, constant)));
+            },
+            Some(Token::Char(c)) => if self.get_mod().children.contains_key(&ident) {
+                eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
+                self.err = true;
+            } else {
+                let d = if constant {
+                    &mut self.rodata
+                } else {
+                    &mut self.data
+                };
+                while d.len() % 8 != 0 {
+                    d.push(0);
+                }
+                let start = d.len();
+                d.push(c);
+                self.get_mod().children.insert(ident, (false, Unit::Bytes(start, 1, constant)));
+            },
             Some(Token::Pound) => {
-                match self.next() {
-                    Some(Token::LParen) => (),
-                    Some(Token::RParen) => {
-                        eprintln!("Unexepected `#` in definition, definition incomplete.");
-                        self.err = true;
-                        return;
-                    }
-                    Some(_) => {
-                        eprintln!("Unexepected `#` in definition.");
-                        self.err = true;
-                        self.skip_opcode();
-                        return;
-                    }
-                    None => {
-                        eprintln!("Unexepected `#` at end of file.");
-                        self.err = true;
-                        return;
-                    }
-                }
-                let mut v = Vec::new();
-                loop {
-                    match self.next() {
-                        Some(Token::RParen) => break,
-                        Some(Token::Integer(i)) => {
-                            if i < 0 || i >= 256 {
-                                eprintln!("Array literals must consist of u8 integers, `{}` is out of range.", i);
-                                self.err = true;
-                            }
-                            v.push(i as u8);
-                        }
-                        Some(Token::Symbol(_)) => {
-                            eprintln!("Array literals must consist of u8 integers, cannot use variables.");
-                            self.err = true;
-                        }
-                        Some(Token::Char(_)) => {
-                            eprintln!("Array literals must consist of u8 integers.");
-                            self.err = true;
-                        }
-                        Some(_) => {
-                            eprintln!("Array literals must consist of u8 integers.");
-                            self.err = true;
-                        }
-                        None => {
-                            eprintln!("Unexepected EOF in array literal.");
-                            self.err = true;
-                            return;
-                        }
-                    }
-                }
+                let mut v = if let Some(v) = self.unwrap_array() {
+                    v
+                } else {
+                    return;
+                };
                 if v.is_empty() {
                     eprintln!("Definition of empty array literal.");
                 }
-                while self.data.len() % 8 != 0 {
-                    self.data.push(0);
+
+                let len = v.len();
+                let d = if constant {
+                    &mut self.rodata
+                } else {
+                    &mut self.data
+                };
+                while d.len() % 8 != 0 {
+                    d.push(0);
                 }
-                let start = self.data.len();
+                let start = d.len();
+                d.append(&mut v);
                 if self.get_mod().children.contains_key(&ident) {
                     eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
                     self.err = true;
                 } else {
-                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, v.len())));
+                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, len, constant)));
                 }
-                self.data.append(&mut v);
             }
             Some(Token::String(start, end)) => {
                 let mut s = self.get_string(start, end);
-                while self.data.len() % 8 != 0 {
-                    self.data.push(0);
+                if s.is_empty() {
+                    eprintln!("Definition of empty string literal.");
                 }
-                let start = self.data.len();
+
+                let len = s.len();
+                let d = if constant {
+                    &mut self.rodata
+                } else {
+                    &mut self.data
+                };
+                while d.len() % 8 != 0 {
+                    d.push(0);
+                }
+                let start = d.len();
+                d.append(&mut s);
                 if self.get_mod().children.contains_key(&ident) {
                     eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
                     self.err = true;
                 } else {
-                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, s.len())));
+                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, len, constant)));
                 }
-                self.data.append(&mut s);
             }
             Some(Token::RParen) => {
                 // TODO
@@ -1049,21 +1157,21 @@ impl Asm {
                     return;
                 }
             };
-            let p = match self.follow_path(&path) {
-                Some(Unit::Bytes(p, _)) => p,
+            let (p, constant) = match self.follow_path(&path) {
+                Some(Unit::Bytes(p, _, c)) => (p, c),
                 Some(_) => {
                     eprintln!("Global not defined/imported at use.");
                     self.err = true;
-                    0
+                    (0, true)
                 },
                 None => {
                     eprintln!("Global not defined/imported at use.");
                     self.err = true;
-                    0
+                    (0, true)
                 },
             };
             let i = self.get_mod().code.len();
-            self.get_mod().rewrites.push((i, p));
+            self.get_mod().rewrites.push((i, p, constant));
             // lui
             let i = (rd << 7) | 0b0110111;
             self.get_mod().code.push(i);
@@ -1224,7 +1332,7 @@ impl Asm {
                 let len = match self.next() {
                     Some(Token::Symbol(s)) => {
                         match self.follow_path(&[s]) {
-                            Some(Unit::Bytes(_, l)) => l as u32,
+                            Some(Unit::Bytes(_, l, _)) => l as u32,
                             Some(_) => {
                                 eprintln!("Global value `{}` has not been defined.", get_value(s));
                                 self.err = true;
@@ -1240,7 +1348,7 @@ impl Asm {
                     Some(Token::LParen) => {
                         let path = self.unwrap_path();
                         match self.follow_path(&path) {
-                            Some(Unit::Bytes(_, l)) => l as u32,
+                            Some(Unit::Bytes(_, l, _)) => l as u32,
                             Some(_) => {
                                 eprintln!("Global value has not been defined.");
                                 self.err = true;
@@ -1517,7 +1625,7 @@ impl Asm {
                 return None;
             }
             match m.children.get(&p) {
-                v @ Some((_, Unit::Bytes(_, _))) | v @ Some((_, Unit::Constant(_))) => {
+                v @ Some((_, Unit::Bytes(_, _, _))) | v @ Some((_, Unit::Constant(_))) => {
                     if i == path.len() {
                         return Some(v.unwrap().1);
                     } else {

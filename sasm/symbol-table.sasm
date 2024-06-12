@@ -2,9 +2,9 @@
 (import (malloc realloc))
 (import (sasm-strings *))
 
-(define SYMBOL-TABLE "\0\0\0\0\0\0\0\0")
-(define SYMBOL-TABLE.len "\0\0\0\0\0\0\0\0")
-(define SYMBOL-TABLE.capacity "\0\0\0\0\0\0\0\0")
+(defvar SYMBOL-TABLE 0)
+(defvar SYMBOL-TABLE.len 0)
+(defvar SYMBOL-TABLE.capacity 0)
 
 (module init
     (subi x2 x2 8)

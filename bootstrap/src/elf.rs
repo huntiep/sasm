@@ -8,93 +8,121 @@ pub struct Elf {
     p_hdr: Vec<Elf64Phdr>,
     program: Vec<u32>,
     data: Vec<u8>,
+    rodata: Vec<u8>,
     shstrtab: Vec<u8>,
     s_hdr: Vec<Elf64Shdr>,
 }
 
 impl Elf {
-    // data is a list of constants
-    // rewrites is a map of indexes into the program to data indexes
-    pub fn new(mut program: Vec<u32>, data: Vec<u8>, rewrites: Vec<(usize, usize)>) -> Self {
+    pub fn new(mut program: Vec<u32>, mut data: Vec<u8>, rodata: Vec<u8>, rewrites: Vec<(usize, usize, bool)>) -> Self {
         // TODO
-        assert!(program.len() * 4 < 0x200000);
-        assert!(data.len() < 0x100000);
-        let program_offset = (mem::size_of::<Elf64Ehdr>() + (2 * mem::size_of::<Elf64Phdr>())) as u64;
+        let mut error = false;
+        if program.len() * 4 >= 0x200000 {
+            eprintln!("Code has exceeded 2MB limit.");
+            error = true;
+        }
+        if data.len() >= 0x200000) {
+            eprintln!("Variable data (`defvar`) has exceeded 2MB limit.");
+            error = true;
+        }
+        if error {
+            std::process::exit(1);
+        }
+
+        let mut p_hdrs = 1;
+        if data.len() > 0 {
+            p_hdrs += 1;
+        }
+        if rodata.len() > 0 {
+            p_hdrs += 1;
+        }
+        let program_offset = (mem::size_of::<Elf64Ehdr>() + (p_hdrs * mem::size_of::<Elf64Phdr>())) as u64;
         // 8-byte align
         if program.len() % 2 != 0 {
             program.push(0);
         }
         let data_offset = program_offset + (program.len() * 4) as u64;
+        while data.len() % 8 != 0 {
+            data.push(0);
+        }
+        let rodata_offset = data_offset + data.len() as u64;
 
-        let pos = DATA_LOCATION + data_offset;
+        let data_pos = DATA_LOCATION + data_offset;
+        let rodata_pos = RODATA_LOCATION + rodata_offset;
         // Perform rewrites
-        for (i, p) in rewrites {
-            let offset = (p as u64 + pos) as u32;
+        for (i, p, constant) in rewrites {
+            let offset = if constant {
+                (p as u64 + rodata_pos) as u32
+            } else {
+                (p as u64 + data_pos) as u32
+            };
+            // https://patchwork.kernel.org/project/linux-riscv/patch/20220131182145.236005-3-kernel@esmil.dk/
             let imm20 = (offset + 0x800) >> 12;
             let imm12 = offset & 0xfff;
             // lui
             program[i] |= imm20 << 12;
             // addi
             program[i+1] |= imm12 << 20;
-            /*
-            // TODO
-            let offset = data_position[i] as u32;
-            let mut buf = [0; 4];
-            (&program[p..]).read_exact(&mut buf).unwrap();
-            let lui = u32::from_le_bytes(buf);
-            (&program[p+4..]).read_exact(&mut buf).unwrap();
-            let addi = u32::from_le_bytes(buf);
-
-            // https://patchwork.kernel.org/project/linux-riscv/patch/20220131182145.236005-3-kernel@esmil.dk/
-            let imm20 = (offset + 0x800) >> 12;
-            let imm12 = offset & 0xfff;
-            let lui = imm20 << 12 | lui;
-            let addi = imm12 << 20 | addi;
-            (&mut program[p..]).write_all(&lui.to_le_bytes()).unwrap();
-            (&mut program[p+4..]).write_all(&addi.to_le_bytes()).unwrap();
-            */
         }
 
+        let mut p_hdr = vec![Elf64Phdr::text(0, data_offset)];
+        if data.len() > 0 {
+            p_hdr.push(Elf64Phdr::data(data_offset, data.len() as u64));
+        }
+        if rodata.len() > 0 {
+            p_hdr.push(Elf64Phdr::rodata(rodata_offset, rodata.len() as u64));
+        }
         Elf {
-            e_hdr: Elf64Ehdr::new(2),
-            p_hdr: vec![Elf64Phdr::text(0, data_offset),
-                        Elf64Phdr::data(data_offset, data.len() as u64)],
+            e_hdr: Elf64Ehdr::new(p_hdrs as u16),
+            p_hdr: p_hdr,
             program: program,
             data: data,
+            rodata: rodata,
             shstrtab: Vec::new(),
             s_hdr: Vec::new(),
         }
     }
 
-    pub fn new_debug(program: Vec<u32>, data: Vec<u8>, rewrites: Vec<(usize, usize)>) -> Self {
-        let mut elf = Self::new(program, data, rewrites);
+    pub fn new_debug (program: Vec<u32>, data: Vec<u8>, rodata: Vec<u8>, rewrites: Vec<(usize, usize, bool)>) -> Self {
+        let mut elf = Self::new(program, data, rodata, rewrites);
 
-        let shstrtab = b"\0.text\0.data\0.shstrtab\0";
-        let shstrtab_offset = elf.p_hdr[1].p_offset + elf.p_hdr[1].p_filesz;
+        let i = if elf.data.len() > 0 { 2 } else { 1 };
+        let mut shstrtab = Vec::from(b"\0.text\0");
+        let shstrtab_offset = elf.p_hdr[i].p_offset + elf.p_hdr[i].p_filesz;
+
+        let mut s_hdr = vec![Elf64Shdr::null(),
+                         Elf64Shdr::text(elf.program.len() as u64, elf.e_hdr.e_entry),
+        ];
+        if elf.data.len() > 0 {
+            s_hdr.push(Elf64Shdr::data(elf.p_hdr[1].p_filesz, elf.p_hdr[1].p_offset));
+            shstrtab.extend_from_slice(b".data\0");
+        }
+        if elf.rodata.len() > 0 {
+            s_hdr.push(Elf64Shdr::rodata(elf.p_hdr[i].p_filesz, elf.p_hdr[i].p_offset));
+            shstrtab.extend_from_slice(b".rodata\0");
+        }
+        shstrtab.extend_from_slice(b".shstrtab\0");
+        s_hdr.push(Elf64Shdr::shstrtab(shstrtab.len() as u64, shstrtab_offset));
+
         let sh_off = shstrtab_offset + shstrtab.len() as u64;
-
-        let s_hdr = vec![Elf64Shdr::null(),
-                        Elf64Shdr::text(elf.program.len() as u64, elf.e_hdr.e_entry),
-                        Elf64Shdr::data(elf.p_hdr[1].p_filesz, elf.p_hdr[1].p_offset),
-                        Elf64Shdr::shstrtab(shstrtab.len() as u64, shstrtab_offset)];
-
         elf.e_hdr.e_shoff = sh_off;
-        elf.e_hdr.e_shnum = 4;
-        elf.e_hdr.e_shstrndx = 3;
-        elf.shstrtab = shstrtab.to_vec();
+        elf.e_hdr.e_shnum = s_hdr.len() as u16;
+        elf.e_hdr.e_shstrndx = s_hdr.len() as u16 - 1;
+        elf.shstrtab = shstrtab;
         elf.s_hdr = s_hdr;
 
         elf
     }
 
     pub fn write<W: Write>(self, mut w: W) -> io::Result<()> {
-        let Elf { e_hdr, p_hdr, program, data, shstrtab, s_hdr } = self;
+        let Elf { e_hdr, p_hdr, program, data, rodata, shstrtab, s_hdr } = self;
         w.write_all(e_hdr.to_slice())?;
         for p in p_hdr {
             w.write_all(p.to_slice())?;
         }
         w.write_all(unsafe { std::slice::from_raw_parts(program.as_ptr() as *const u8, program.len() * 4) })?;
         w.write_all(&data)?;
+        w.write_all(&rodata)?;
         w.write_all(&shstrtab)?;
         for s in s_hdr {
             w.write_all(s.to_slice())?;
@@ -112,7 +140,7 @@ type Elf64Xword = u64;
 const EI_NIDENT: usize = 16; // Number of bytes in e_ident
 const ENTRY_LOCATION: u64 = 0x400000;
 const DATA_LOCATION: u64 = 0x600000;
-const RODATA_LOCATION: u64 = 0x700000;
+const RODATA_LOCATION: u64 = 0x800000;
 
 const RISCV: u16 = 0xf3;
 
@@ -312,10 +340,11 @@ impl Elf64Shdr {
 
     fn rodata(sh_size: u64, sh_offset: u64) -> Self {
         Elf64Shdr {
+            // TODO
             sh_name: 0x07,
             sh_type: 1,
             sh_flags: 2,
-            sh_addr: DATA_LOCATION + sh_offset,
+            sh_addr: RODATA_LOCATION + sh_offset,
             sh_offset: sh_offset,
             sh_size: sh_size,
             sh_link: 0,
