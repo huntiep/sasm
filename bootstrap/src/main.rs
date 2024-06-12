@@ -98,7 +98,7 @@ fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, token_info: Ve
     path.pop();
     root.path = path;
     let name = get_symbol(filename.rsplitn(2, '.').last().unwrap().as_bytes().to_vec());
-    root.children.insert(name, Unit::Module(1));
+    root.children.insert(name, (false, Unit::Module(1)));
 
     let mut asm = Asm {
         input: input,
@@ -147,7 +147,7 @@ type Symbol = usize;
 struct Module {
     id: usize,
     parent: Option<usize>,
-    children: HashMap<Symbol, Unit>,
+    children: HashMap<Symbol, (bool, Unit)>,
     filep: bool,
     path: PathBuf,
     location: usize,
@@ -181,7 +181,7 @@ impl Module {
             let p = if let Some(p) = self.labels.get(label) {
                 *p
             } else {
-                jumps.push((*label,*i, *ty));
+                jumps.push((*label, *i, *ty));
                 continue;
             };
 
@@ -410,7 +410,8 @@ impl Asm {
             file_path.push(get_value(path[0]));
 
             if file_path.is_dir() {
-                return self.import_dir(path[0], file_path, None);
+                self.import_dir(path[0], file_path, None);
+                return;
             } else if { file_path.set_extension("sasm"); !file_path.is_file() } {
                 if existp {
                     eprintln!("Unnecessary import statement");
@@ -423,7 +424,8 @@ impl Asm {
                 }
             }
 
-            return self.import_file(path[0], file_path, None);
+            self.import_file(path[0], file_path, None);
+            return;
         }
 
         let mut m = &self.modules[self.module];
@@ -459,25 +461,30 @@ impl Asm {
                 self.err = true;
                 return;
             } else if p == symbols::STAR {
-                for (k, v) in m.children.clone() {
+                for (k, (importp, v)) in m.children.clone() {
                     if self.get_mod().children.contains_key(&k) {
                         eprintln!("`{}` is already defined in this scope.", get_value(k));
                         self.err = true;
-                    } else {
-                        self.get_mod().children.insert(k, v);
+                    } else if !importp {
+                        self.get_mod().children.insert(k, (true, v));
                     }
                 }
                 return;
             }
 
             match m.children.get(&p).copied() {
-                v @ Some(Unit::Bytes(_, _)) | v @ Some(Unit::Constant(_)) => {
-                    if i == path.len() {
+                v @ Some((_, Unit::Bytes(_, _))) | v @ Some((_, Unit::Constant(_))) => {
+                    let (importp, v) = v.unwrap();
+                    // TODO
+                    if importp {
+                        eprintln!("Cannot import an import");
+                        self.err = true;
+                    } else if i == path.len() {
                         if self.get_mod().children.contains_key(&p) {
                             eprintln!("`{}` is already defined in this scope.", get_value(p));
                             self.err = true;
                         } else {
-                            self.get_mod().children.insert(p, v.unwrap());
+                            self.get_mod().children.insert(p, (true, v));
                         }
                     } else {
                         eprintln!("Path resolved to variable/global partway.");
@@ -485,18 +492,18 @@ impl Asm {
                     }
                     return;
                 }
-                Some(Unit::Module(id)) => if i == path.len() {
+                Some((importp, Unit::Module(id))) if !importp => if i == path.len() {
                     if self.get_mod().children.contains_key(&p) {
                         eprintln!("`{}` is already defined in this scope.", get_value(p));
                         self.err = true;
                     } else {
-                        self.get_mod().children.insert(p, Unit::Module(id));
+                        self.get_mod().children.insert(p, (true, Unit::Module(id)));
                     }
                     return;
                 } else {
                     m = &self.modules[id]
                 },
-                None => {
+                Some(_) | None => {
                     let mut m2 = m;
                     let mut existp = false;
                     while !m2.filep {
@@ -511,10 +518,12 @@ impl Asm {
                     let mut file_path = self.modules[ptr].path.clone();
                     file_path.push(get_value(p));
                     if file_path.is_dir() {
-                        let m_id = self.modules.len();
-                        self.import_dir(p, file_path, Some(ptr));
-                        m = &self.modules[m_id];
-                        //continue;
+                        if let Some(m_id) = self.import_dir(p, file_path, Some(ptr)) {
+                            m = &self.modules[m_id];
+                        } else {
+                            self.err = true;
+                            return;
+                        }
                     } else if { file_path.set_extension("sasm"); !file_path.is_file() } {
                         // TODO: i = path.len
                         if existp {
@@ -527,26 +536,36 @@ impl Asm {
                             return;
                         }
                     } else {
-                        let m_id = self.modules.len();
-                        self.import_file(p, file_path, Some(ptr));
-                        m = &self.modules[m_id];
+                        if let Some(m_id) = self.import_file(p, file_path, Some(ptr)) {
+                            m = &self.modules[m_id];
+                        } else {
+                            self.err = true;
+                            return;
+                        }
                     }
                 }
             }
         }
     }
 
-    fn import_dir(&mut self, path: Symbol, file_path: PathBuf, parent: Option<usize>) {
+    fn import_dir(&mut self, path: Symbol, file_path: PathBuf, parent: Option<usize>) -> Option<usize> {
         if let Some(id) = self.import_files.get(&file_path).copied() {
-            match self.get_mod().children.get(&path) {
-                Some(Unit::Module(i)) if *i == id => eprintln!("Double import statement"),
-                Some(_) => {
-                    eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
-                    self.err = true;
+            if parent.is_some() {
+                return Some(id);
+            } else {
+                match self.get_mod().children.get(&path) {
+                    Some((_, Unit::Module(i))) if *i == id => eprintln!("Double import statement"),
+                    Some(_) => {
+                        eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
+                        self.err = true;
+                    }
+                    None => {
+                        self.get_mod().children.insert(path, (true, Unit::Module(id)));
+                        return Some(id);
+                    }
                 }
-                None => { self.get_mod().children.insert(path, Unit::Module(id)); },
+                return None;
             }
-            return;
         }
 
         let m_id = self.modules.len();
@@ -554,7 +573,7 @@ impl Asm {
             eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
             self.err = true;
         } else if parent.is_none() {
-            self.get_mod().children.insert(path, Unit::Module(m_id));
+            self.get_mod().children.insert(path, (true, Unit::Module(m_id)));
         }
         self.import_files.insert(file_path.clone(), m_id);
         // TODO: should filep be set?
@@ -570,7 +589,7 @@ impl Asm {
         } else {
             eprintln!("Unable to read directory `{}`", file_path.display());
             self.err = true;
-            return;
+            return Some(m_id);
         };
         for f in dir {
             // TODO
@@ -594,19 +613,27 @@ impl Asm {
         }
 
         self.module = old_id;
+        Some(m_id)
     }
 
-    fn import_file(&mut self, path: Symbol, file_path: PathBuf, parent: Option<usize>) {
+    fn import_file(&mut self, path: Symbol, file_path: PathBuf, parent: Option<usize>) -> Option<usize> {
         if let Some(id) = self.import_files.get(&file_path).copied() {
-            match self.get_mod().children.get(&path) {
-                Some(Unit::Module(i)) if *i == id => eprintln!("Double import statement"),
-                Some(_) => {
-                    eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
-                    self.err = true;
+            if parent.is_some() {
+                return Some(id);
+            } else {
+                match self.get_mod().children.get(&path) {
+                    Some((_, Unit::Module(i))) if *i == id => eprintln!("Double import statement"),
+                    Some(_) => {
+                        eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
+                        self.err = true;
+                    }
+                    None => {
+                        self.get_mod().children.insert(path, (true, Unit::Module(id)));
+                        return Some(id);
+                    }
                 }
-                None => { self.get_mod().children.insert(path, Unit::Module(id)); },
+                return None;
             }
-            return;
         }
 
         // shitty bc
@@ -615,7 +642,7 @@ impl Asm {
             eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
             self.err = true;
         } else if parent.is_none() {
-            self.get_mod().children.insert(path, Unit::Module(m_id));
+            self.get_mod().children.insert(path, (true, Unit::Module(m_id)));
         }
         self.import_files.insert(file_path.clone(), m_id);
         let parent = parent.unwrap_or(self.module);
@@ -630,7 +657,7 @@ impl Asm {
         } else {
             self.module = self.get_mod().parent.unwrap();
             self.err = true;
-            return;
+            return Some(m_id);
         };
 
         let tokenizer::Tokenizer { mut input, mut tokens, mut token_info, err, mut filename, .. } = tokenizer::tokenize(include_input, file_path.display().to_string());
@@ -649,6 +676,7 @@ impl Asm {
         mem::swap(&mut self.filename, &mut filename);
 
         self.module = old_id;
+        Some(m_id)
     }
 
     fn handle_module(&mut self) {
@@ -679,7 +707,7 @@ impl Asm {
             eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(ident));
             self.err = true;
         } else {
-            self.get_mod().children.insert(ident, Unit::Module(m_id));
+            self.get_mod().children.insert(ident, (false, Unit::Module(m_id)));
         }
         self.module = m_id;
         self.modules.push(module);
@@ -818,13 +846,13 @@ impl Asm {
                 eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
                 self.err = true;
             } else {
-                self.get_mod().children.insert(ident, Unit::Constant(i));
+                self.get_mod().children.insert(ident, (false, Unit::Constant(i)));
             },
             Some(Token::Char(c)) => if self.get_mod().children.contains_key(&ident) {
                 eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
                 self.err = true;
             } else {
-                self.get_mod().children.insert(ident, Unit::Constant(c as i64));
+                self.get_mod().children.insert(ident, (false, Unit::Constant(c as i64)));
             },
             Some(Token::Pound) => {
                 match self.next() {
@@ -879,33 +907,31 @@ impl Asm {
                 if v.is_empty() {
                     eprintln!("Definition of empty array literal.");
                 }
+                while self.data.len() % 8 != 0 {
+                    self.data.push(0);
+                }
                 let start = self.data.len();
                 if self.get_mod().children.contains_key(&ident) {
                     eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
                     self.err = true;
                 } else {
-                    self.get_mod().children.insert(ident, Unit::Bytes(start, v.len()));
+                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, v.len())));
                 }
                 self.data.append(&mut v);
-                // TODO: move above
-                while self.data.len() % 8 != 0 {
-                    self.data.push(0);
-                }
             }
             Some(Token::String(start, end)) => {
                 let mut s = self.get_string(start, end);
+                while self.data.len() % 8 != 0 {
+                    self.data.push(0);
+                }
                 let start = self.data.len();
                 if self.get_mod().children.contains_key(&ident) {
                     eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
                     self.err = true;
                 } else {
-                    self.get_mod().children.insert(ident, Unit::Bytes(start, s.len()));
+                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, s.len())));
                 }
                 self.data.append(&mut s);
-                // TODO: move above
-                while self.data.len() % 8 != 0 {
-                    self.data.push(0);
-                }
             }
             Some(Token::RParen) => {
                 // TODO
@@ -1197,8 +1223,8 @@ impl Asm {
                 // len
                 let len = match self.next() {
                     Some(Token::Symbol(s)) => {
-                        match self.get_mod().children.get(&s) {
-                            Some(Unit::Bytes(_, l)) => *l as u32,
+                        match self.follow_path(&[s]) {
+                            Some(Unit::Bytes(_, l)) => l as u32,
                             Some(_) => {
                                 eprintln!("Global value `{}` has not been defined.", get_value(s));
                                 self.err = true;
@@ -1451,7 +1477,7 @@ impl Asm {
         if path.len() == 1 {
             let mut m = &self.modules[self.module];
             loop {
-                if let Some(u) = m.children.get(&path[0]) {
+                if let Some((_, u)) = m.children.get(&path[0]) {
                     return Some(*u);
                 } else if m.filep {
                     return None;
@@ -1491,14 +1517,14 @@ impl Asm {
                 return None;
             }
             match m.children.get(&p) {
-                v @ Some(Unit::Bytes(_, _)) | v @ Some(Unit::Constant(_)) => {
+                v @ Some((_, Unit::Bytes(_, _))) | v @ Some((_, Unit::Constant(_))) => {
                     if i == path.len() {
-                        return Some(*v.unwrap());
+                        return Some(v.unwrap().1);
                     } else {
                         return None;
                     }
                 }
-                Some(Unit::Module(id)) => m = &self.modules[*id],
+                Some((_, Unit::Module(id))) => m = &self.modules[*id],
                 None => {
                     if m.filep {
                         self.err = true;
