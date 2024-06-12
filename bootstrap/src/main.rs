@@ -980,9 +980,9 @@ impl Asm {
     }
 
     fn handle_opcode(&mut self, symbol: usize) {
-        const FUNCT3: [u32; 41] = [0, 0, 4, 6, 7, 1, 5, 5, 2, 3, 0, 4, 6,   // r
+        const FUNCT3: [u32; 40] = [0, 0, 4, 6, 7, 1, 5, 5, 2, 3, 0, 4, 6,   // r
                                    0, 0, 4, 6, 7, 1, 5, 5, 2, 3,            // i
-                                   0, 1, 2, 3, 4, 5, 6, 0,                  // i2 - last item is gap for la
+                                   0, 1, 2, 3, 4, 5, 6,                     // i2
                                    0, 1, 2, 3,                              // s
                                    0, 1, 4, 5, 6, 7];                       // b
         let i = if symbol < symbols::ADD {
@@ -991,7 +991,7 @@ impl Asm {
             self.err = true;
             return self.skip_opcode();
         // R instructions
-        } else if symbol <= symbols::REM {
+        } else if symbol <= symbols::LAST_R {
             let funct7 = match symbol {
                 symbols::SUB | symbols::SRAI => 0x20,
                 symbols::MUL | symbols::DIV | symbols::REM => 0x01,
@@ -1002,7 +1002,7 @@ impl Asm {
             let rs2 = self.unwrap_register();
             (funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0110011
         // I instructions
-        } else if symbol <= symbols::SLTIU {
+        } else if symbol <= symbols::LAST_I {
             let rd = self.unwrap_register();
             let rs1 = self.unwrap_register();
             let mut imm = self.unwrap_imm();
@@ -1018,7 +1018,7 @@ impl Asm {
             }
             (imm << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0010011
         // I2 instructions
-        } else if symbol <= symbols::LWU {
+        } else if symbol <= symbols::LAST_I2 {
             let rd = self.unwrap_register();
             let (rs1, mut imm) = self.unwrap_offset();
             if (imm as i32) >= 2048 || (imm as i32) < -2048 {
@@ -1070,7 +1070,7 @@ impl Asm {
             // addi
             (rd << 15) | (rd << 7) | 0b0010011
         // S instructions
-        } else if symbol <= symbols::SD {
+        } else if symbol <= symbols::LAST_S {
             let (rs1, mut imm) = self.unwrap_offset();
             if (imm as i32) >= 2048 || (imm as i32) < -2048 {
                 eprintln!("Offset `{}` out of range [-2048, 2048)", imm as i32);
@@ -1081,7 +1081,7 @@ impl Asm {
             ((imm >> 5) << 25) | (rd << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | ((imm & 0b11111) << 7) | 0b0100011
 
         // B instructions
-        } else if symbol <= symbols::BGEU {
+        } else if symbol <= symbols::LAST_B {
             let rs1 = self.unwrap_register();
             let rs2 = self.unwrap_register();
             let mut i = (rs2 << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | 0b1100011;

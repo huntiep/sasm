@@ -1,33 +1,42 @@
 use tokenizer::get_symbol;
 
 pub const X31: usize = 32;
-pub const DEFINE: usize = 33;
-pub const INCLUDE: usize = 34;
-pub const ADD: usize = 35;
-pub const SUB: usize = 36;
-pub const MUL: usize = 45;
-pub const DIV: usize = 46;
-pub const REM: usize = 47;
-pub const SUBI: usize = 49;
-pub const SRAI: usize = 55;
-pub const SLTIU: usize = 57;
-pub const LWU: usize = 64;
-pub const LA: usize = 65;
-pub const SD: usize = 69;
-pub const BGEU: usize = 75;
-pub const JAL: usize = 76;
-pub const JALR: usize = 77;
-pub const LUI: usize = 78;
-pub const AUIPC: usize = 79;
-pub const ECALL: usize = 80;
-pub const EBREAK: usize = 81;
-pub const LEN: usize = 82;
-pub const PLUS: usize = 83;
-pub const NEG: usize = 84;
-pub const IMPORT: usize = 85;
-pub const MODULE: usize = 86;
-pub const CARAT: usize = 87;
-pub const STAR: usize = 88;
+pub const ADD: usize = 33;
+pub const SUB: usize = 34;
+pub const MUL: usize = 43;
+pub const DIV: usize = 44;
+pub const REM: usize = 45;
+pub const LAST_R: usize = 45;
+
+pub const SUBI: usize = 47;
+pub const SRAI: usize = 53;
+pub const LAST_I: usize = 55;
+
+pub const LAST_I2: usize = 62;
+
+pub const LAST_S: usize = 66;
+
+pub const LAST_B: usize = 72;
+
+pub const JAL: usize = 73;
+pub const JALR: usize = 74;
+pub const LUI: usize = 75;
+pub const AUIPC: usize = 76;
+pub const ECALL: usize = 77;
+pub const EBREAK: usize = 78;
+pub const LA: usize = 79;
+
+pub const LEN: usize = 80;
+pub const PLUS: usize = 81;
+pub const NEG: usize = 82;
+pub const IMPORT: usize = 83;
+pub const MODULE: usize = 84;
+pub const CARAT: usize = 85;
+pub const STAR: usize = 86;
+pub const INCLUDE: usize = 87;
+pub const DEFINE: usize = 88;
+pub const DEFCON: usize = 89;
+pub const DEFVAR: usize = 90;
 
 pub fn init() {
     assert_eq!(get_symbol(b"x0".to_vec()), 1);
@@ -63,9 +72,6 @@ pub fn init() {
     get_symbol(b"x30".to_vec());
     assert_eq!(get_symbol(b"x31".to_vec()), 32);
 
-    get_symbol(b"define".to_vec());
-    get_symbol(b"include!".to_vec());
-
     get_symbol(b"add".to_vec());
     get_symbol(b"sub".to_vec());
     get_symbol(b"xor".to_vec());
@@ -98,7 +104,6 @@ pub fn init() {
     get_symbol(b"lbu".to_vec());
     get_symbol(b"lhu".to_vec());
     get_symbol(b"lwu".to_vec());
-    get_symbol(b"la".to_vec());
 
     get_symbol(b"sb".to_vec());
     get_symbol(b"sh".to_vec());
@@ -118,12 +123,18 @@ pub fn init() {
     get_symbol(b"auipc".to_vec());
     get_symbol(b"ecall".to_vec());
     get_symbol(b"ebreak".to_vec());
+    get_symbol(b"la".to_vec());
 
     get_symbol(b"len".to_vec());
     get_symbol(b"+".to_vec());
-    assert_eq!(get_symbol(b"-".to_vec()), 84);
+    assert_eq!(get_symbol(b"-".to_vec()), 82);
     get_symbol(b"import".to_vec());
     get_symbol(b"module".to_vec());
     get_symbol(b"^".to_vec());
     get_symbol(b"*".to_vec());
+    get_symbol(b"include!".to_vec());
+    get_symbol(b"define".to_vec());
+    get_symbol(b"defcon".to_vec());
+    get_symbol(b"defvar".to_vec());
+
 }
