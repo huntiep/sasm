@@ -98,11 +98,11 @@ impl Elf {
             shstrtab.extend_from_slice(b".data\0");
         }
         if elf.rodata.len() > 0 {
-            s_hdr.push(Elf64Shdr::rodata(elf.p_hdr[i].p_filesz, elf.p_hdr[i].p_offset));
+            s_hdr.push(Elf64Shdr::rodata(elf.p_hdr[i].p_filesz, elf.p_hdr[i].p_offset, shstrtab.len()));
             shstrtab.extend_from_slice(b".rodata\0");
         }
+        s_hdr.push(Elf64Shdr::shstrtab(shstrtab.len() as u64, shstrtab_offset, shstrtab.len()));
         shstrtab.extend_from_slice(b".shstrtab\0");
-        s_hdr.push(Elf64Shdr::shstrtab(shstrtab.len() as u64, shstrtab_offset));
 
         let sh_off = shstrtab_offset + shstrtab.len() as u64;
         elf.e_hdr.e_shoff = sh_off;
@@ -338,10 +338,9 @@ impl Elf64Shdr {
         }
     }
 
-    fn rodata(sh_size: u64, sh_offset: u64) -> Self {
+    fn rodata(sh_size: u64, sh_offset: u64, sh_name: u32) -> Self {
         Elf64Shdr {
-            // TODO
-            sh_name: 0x07,
+            sh_name: sh_name,
             sh_type: 1,
             sh_flags: 2,
             sh_addr: RODATA_LOCATION + sh_offset,
@@ -354,9 +353,9 @@ impl Elf64Shdr {
         }
     }
 
-    fn shstrtab(sh_size: u64, sh_offset: u64) -> Self {
+    fn shstrtab(sh_size: u64, sh_offset: u64, sh_name: u32) -> Self {
         Elf64Shdr {
-            sh_name: 0x0d,
+            sh_name: sh_name,
             sh_type: 3,
             sh_flags: 0,
             sh_addr: 0,
