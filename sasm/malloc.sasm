@@ -1,7 +1,9 @@
+(import (syscalls *))
+
 ;; Hack to avoid making global ints for now.
 (define HEAP-START "\0\0\0\0\0\0\0\0")
 (define HEAP-END "\0\0\0\0\0\0\0\0")
-malloc-init
+(module init
     (add x10 x0 x0)
     (addi x17 x0 SYS_BRK)
     (ecall)
@@ -10,6 +12,7 @@ malloc-init
     (la x6 HEAP-END)
     (sd x6 x10)
     (jalr x0 x1)
+)
 
 ;; Based on simple design outlined near the beginning of https://moss.cs.iit.edu/cs351/slides/slides-malloc.pdf
 ;; Args
@@ -21,7 +24,7 @@ malloc-init
 ;;   x29 - temp
 (define Malloc::Alignment 7)
 (define Malloc::SIZE_T_SIZE 8)
-malloc
+(module alloc
     ;; Align(size)
     (addi x10 x10 Malloc::SIZE_T_SIZE)
     (addi x10 x10 Malloc::Alignment)
@@ -94,20 +97,22 @@ malloc
         find-fit-done
             (add x10 x0 x6)
             (jalr x0 x1)
+)
 
 ;; x10 - pointer to free
 ;; x6 - temporary
-free
+(module free
     ;; SIZE_T_SIZE = 8
     (subi x10 x10 Malloc::SIZE_T_SIZE)
     (ld x6 x10)
     (subi x6 x6 1)
     (sd x10 x6)
     (jalr x0 x1)
+)
 
 ;; x10 - old pointer
 ;; x11 - new size in bytes
-realloc
+(module realloc
     (ld x6 (- x10 Malloc::SIZE_T_SIZE))
     (subi x6 x6 9)
     ;; ALIGN(size + SIZE_T_SIZE)
@@ -125,7 +130,7 @@ realloc
     (sd (+ x2 8) x10)
     (sd x2 x1)
     (add x10 x0 x11)
-    (jal x1 malloc)
+    (jal x1 alloc)
     (ld x1 x2)
     (ld x11 (+ x2 8))
     (addi x2 x2 16)
@@ -166,5 +171,4 @@ realloc
         (ori x11 x11 1)
         (sd (- x10 8) x11)
         (jalr x0 x1)
-
-
+)

@@ -7,30 +7,31 @@
 ;;     String(startptr, length),
 ;;     Pound,
 ;; }
-;(define Token::LeftParen 0)
-;(define Token::RightParen 1)
-;(define Token::Symbol 2)
-;(define Token::Integer 3)
-;(define Token::Char 4)
-;(define Token::String 5)
-;(define Token::Pound 6)
-(define Token::LeftParen #'(')
-(define Token::RightParen #')')
-(define Token::Symbol #'s')
-(define Token::Integer #'i')
-(define Token::Char #'c')
-(define Token::String #'t')
-(define Token::Pound #'#')
+(module Token
+    (define LeftParen #'(')
+    (define RightParen #')')
+    (define Symbol #'s')
+    (define Integer #'i')
+    (define Char #'c')
+    (define String #'t')
+    (define Pound #'#')
+)
 
-(include! "sasm-strings.sasm")
-(include! "syscalls.sasm")
+(import (sasm-strings *))
+(import (syscalls *))
+(import malloc)
+(import (malloc alloc))
+(import (malloc realloc))
+(import (malloc free))
+(import symbol-table)
+(import (symbol-table string->symbol))
 
 start
     ;; Init malloc
-    (jal x1 malloc-init)
+    (jal x1 (malloc init))
     ;;(include! "test-malloc.sasm")
     ;;(include! "test-symbol-table.sasm")
-    (jal x1 symbol-table-init)
+    (jal x1 (symbol-table init))
 
     ;; Check that argc == 2
     (lw x10 x2)
@@ -49,21 +50,12 @@ start
 
     (jal x1 assemble)
 
-;    (addi x10 x0 STDOUT)
-;    (add x11 x0 x12)
-;    (sub x12 x13 x12)
-;    (addi x17 x0 SYS_WRITE)
-;    (ecall)
-;
-;    (add x10 x0 x0)
-;    (addi x17 x0 SYS_EXIT)
-;    (ecall)
-
     (ld x6 x2)
     (subi x6 x6 3)
     (bne x6 x0 load-default-output-name)
     (ld x6 (+ x2 24))
 
+    open-output-name
     (subi x2 x2 48)
     (sd x2 x10)
     (sd (+ x2 8) x11)
@@ -72,7 +64,6 @@ start
     (sd (+ x2 32) x14)
     (sd (+ x2 40) x15)
 
-    open-output-name
     ;; openat(AT_FDCWD, output-name, O_WRONLY|O_CREAT|O_TRUNC, 0o777)
     (addi x10 x0 -100)
     (add x11 x0 x6)
@@ -114,9 +105,10 @@ start
         (addi x10 x0 1)
         (addi x17 x0 SYS_EXIT)
         (ecall)
-
-(include! "symbol-table.sasm")
-(include! "malloc.sasm")
+    error-open
+        (addi x10 x0 2)
+        (addi x17 x0 SYS_EXIT)
+        (ecall)
 
 ;; Args:
 ;;  x11 - filename
@@ -124,7 +116,7 @@ start
 ;; Ret:
 ;;  x10 - input: String
 ;;  x11 - input.len : pointer to end of input
-read-file
+(module read-file
     ;; openat(AT_FDCWD, input-name, O_RDONLY, 0)
     (addi x10 x0 AT_FDCWD)
     (add x12 x0 x0)
@@ -165,7 +157,7 @@ read-file
 
     ;; close(fd)
     (add x10 x0 x14)
-    (addi x17 x0 57)
+    (addi x17 x0 SYS_CLOSE)
     (ecall)
 
     (add x10 x0 x30)
@@ -180,6 +172,7 @@ read-file
         (addi x10 x0 3)
         (addi x17 x0 SYS_EXIT)
         (ecall)
+)
 
 ;; Args:
 ;;  x10 - input: String
@@ -193,7 +186,7 @@ read-file
 ;; Ret:
 ;;  x10 - tokens: ArrayBuf<(Token, len, start)>
 ;;  x11 - len: tokens.len
-tokenize
+(module tokenize
     (subi x2 x2 32)
     (sd (+ x2 8) x10)
     (sd (+ x2 16) x11)
@@ -201,7 +194,7 @@ tokenize
 
     ;; allocate tokens arraybuf
     (addi x10 x0 16)
-    (jal x1 malloc)
+    (jal x1 alloc)
     (add x20 x0 x10)
 
     (ld x10 (+ x2 8))
@@ -211,61 +204,61 @@ tokenize
     (sd x2 x20)
     (addi x21 x20 16)
 
-    tokenize-loop
-        (beq x10 x11 tokenize-after-loop)
+    loop
+        (beq x10 x11 after-loop)
         (lb x28 x10)
         (add x31 x10 x0)
         (addi x10 x10 1)
 
         (subi x29 x28 #'(')
-        (addi x30 x0 Token::LeftParen)
-        (beq x29 x0 tokenize-loop-push-token)
+        (addi x30 x0 (Token LeftParen))
+        (beq x29 x0 push-token)
 
         (subi x29 x28 #')')
-        (addi x30 x0 Token::RightParen)
-        (beq x29 x0 tokenize-loop-push-token)
+        (addi x30 x0 (Token RightParen))
+        (beq x29 x0 push-token)
 
         (subi x29 x28 #'"')
-        (beq x29 x0 tokenize-string)
+        (beq x29 x0 string)
 
         (subi x29 x28 #'#')
-        (beq x29 x0 tokenize-literal)
+        (beq x29 x0 literal)
 
         (subi x29 x28 #';')
-        (beq x29 x0 tokenize-comment)
+        (beq x29 x0 comment)
 
         ;; Skip whitespace
         (subi x29 x28 #' ')
-        (beq x29 x0 tokenize-loop)
+        (beq x29 x0 loop)
         (subi x29 x28 #'\t')
-        (beq x29 x0 tokenize-loop)
+        (beq x29 x0 loop)
         (subi x29 x28 #'\r')
-        (beq x29 x0 tokenize-loop)
+        (beq x29 x0 loop)
         (subi x29 x28 #'\n')
-        (beq x29 x0 tokenize-loop)
+        (beq x29 x0 loop)
 
         ;; Ambiguous, could be a symbol or an integer
         (subi x29 x28 #'0')
         (addi x6 x0 11)
-        (bltu x29 x6 tokenize-ambiguous)
+        (bltu x29 x6 ambiguous)
         (subi x29 x28 #'+')
-        (beq x29 x0 tokenize-ambiguous)
+        (beq x29 x0 ambiguous)
         (subi x29 x28 #'-')
-        (beq x29 x0 tokenize-ambiguous)
+        (beq x29 x0 ambiguous)
 
-        (jal x0 tokenize-identifier)
+        (jal x0 identifier)
 
-        tokenize-loop-push-token
-            (beq x20 x21 tokenize-loop-alloc)
-            tokenize-loop-after-alloc
+        push-token
+            (beq x20 x21 resize)
+            after-resize
             (sb x20 x30)
             (sd (+ x20 8) x31)
             (sub x31 x10 x31)
             (sw (+ x20 4) x31)
             (addi x20 x20 16)
-            (jal x0 tokenize-loop)
+            (jal x0 loop)
 
-            tokenize-loop-alloc
+            resize
                 ;; Double tokens capacity
                 (subi x2 x2 40)
                 (sd x2 x10)
@@ -292,101 +285,101 @@ tokenize
                 (ld x31 (+ x2 24))
                 (addi x2 x2 40)
 
-                (jal x0 tokenize-loop-after-alloc)
+                (jal x0 after-resize)
 
-    tokenize-after-loop
+    after-loop
         (ld x10 x2)
         (add x11 x0 x20)
         (ld x1 (+ x2 8))
         (addi x2 x2 16)
         (jalr x0 x1)
 
-    tokenize-string
-        (addi x30 x0 Token::String)
-    tokenize-string-loop
-        (beq x10 x11 tokenize-string-error)
+    string
+        (addi x30 x0 (Token String))
+    string-loop
+        (beq x10 x11 string-error)
         (lb x28 x10)
         (addi x10 x10 1)
 
         (subi x29 x28 #'\\')
-        (beq x29 x0 tokenize-string-escape)
+        (beq x29 x0 string-escape)
         (subi x29 x28 #'"')
-        (bne x29 x0 tokenize-string-loop)
-    tokenize-string-done
-        (jal x0 tokenize-loop-push-token)
-    tokenize-string-escape
-        (beq x10 x11 tokenize-string-error)
+        (bne x29 x0 string-loop)
+    string-done
+        (jal x0 push-token)
+    string-escape
+        (beq x10 x11 string-error)
         (lb x28 x10)
         (addi x10 x10 1)
 
         (subi x29 x28 #'r')
-        (beq x29 x0 tokenize-string-loop)
+        (beq x29 x0 string-loop)
         (subi x29 x28 #'n')
-        (beq x29 x0 tokenize-string-loop)
+        (beq x29 x0 string-loop)
         (subi x29 x28 #'t')
-        (beq x29 x0 tokenize-string-loop)
+        (beq x29 x0 string-loop)
         (subi x29 x28 #'0')
-        (beq x29 x0 tokenize-string-loop)
+        (beq x29 x0 string-loop)
         (subi x29 x28 #'\\')
-        (beq x29 x0 tokenize-string-loop)
+        (beq x29 x0 string-loop)
         (subi x29 x28 #'"')
-        (beq x29 x0 tokenize-string-loop)
-    tokenize-string-error
+        (beq x29 x0 string-loop)
+    string-error
         (addi x10 x0 20)
         (addi x17 x0 SYS_EXIT)
         (ecall)
 
-    tokenize-literal
-        (beq x10 x11 tokenize-literal-error)
+    literal
+        (beq x10 x11 literal-error)
         (lb x28 x10)
-        (addi x30 x0 Token::Pound)
+        (addi x30 x0 (Token Pound))
         (subi x28 x28 #'\'')
-        (bne x28 x0 tokenize-loop-push-token)
+        (bne x28 x0 push-token)
         (addi x10 x10 1)
 
-        (beq x10 x11 tokenize-literal-error)
+        (beq x10 x11 literal-error)
         (lb x31 x10)
         (addi x10 x10 1)
         (subi x29 x31 #'\'')
-        (beq x29 x0 tokenize-literal-error)
+        (beq x29 x0 literal-error)
         (subi x29 x31 #'\\')
-        (bne x29 x0 tokenize-literal-close)
+        (bne x29 x0 literal-close)
 
-        (beq x10 x11 tokenize-literal-error)
+        (beq x10 x11 literal-error)
         (lb x28 x10)
         (addi x10 x10 1)
         (addi x31 x0 #'\\')
-        (beq x28 x31 tokenize-literal-close)
+        (beq x28 x31 literal-close)
         (addi x31 x0 #'\'')
-        (beq x28 x31 tokenize-literal-close)
+        (beq x28 x31 literal-close)
         (subi x29 x28 #'r')
         (addi x31 x0 #'\r')
-        (beq x29 x0 tokenize-literal-close)
+        (beq x29 x0 literal-close)
         (subi x29 x28 #'n')
         (addi x31 x0 #'\n')
-        (beq x29 x0 tokenize-literal-close)
+        (beq x29 x0 literal-close)
         (subi x29 x28 #'t')
         (addi x31 x0 #'\t')
-        (beq x29 x0 tokenize-literal-close)
+        (beq x29 x0 literal-close)
         (subi x29 x28 #'0')
         (addi x31 x0 #'\0')
-        (beq x29 x0 tokenize-literal-close)
+        (beq x29 x0 literal-close)
 
-        (jal x0 tokenize-literal-error)
-    tokenize-literal-close
-        (beq x10 x11 tokenize-literal-error)
+        (jal x0 literal-error)
+    literal-close
+        (beq x10 x11 literal-error)
         (lb x28 x10)
         (addi x10 x10 1)
         (subi x28 x28 #'\'')
-        (bne x28 x0 tokenize-literal-error)
-        (addi x30 x0 Token::Char)
-        (jal x0 tokenize-loop-push-token)
-    tokenize-literal-error
+        (bne x28 x0 literal-error)
+        (addi x30 x0 (Token Char))
+        (jal x0 push-token)
+    literal-error
         (addi x10 x0 21)
         (addi x17 x0 SYS_EXIT)
         (ecall)
 
-    tokenize-ambiguous
+    ambiguous
         (beq x10 x11 distinguish-ambiguous)
 
         (lb x28 x10)
@@ -395,13 +388,14 @@ tokenize
         ;; Still ambiguous
         (subi x29 x28 #'0')
         (addi x6 x0 11)
-        (bltu x29 x6 tokenize-ambiguous)
+        (bltu x29 x6 ambiguous)
         (subi x29 x28 #'+')
-        (beq x29 x0 tokenize-ambiguous)
+        (beq x29 x0 ambiguous)
         (subi x29 x28 #'-')
-        (beq x29 x0 tokenize-ambiguous)
+        (beq x29 x0 ambiguous)
 
 
+        (subi x10 x10 1)
         ;; Delimiter
         (subi x29 x28 #')')
         (beq x29 x0 distinguish-ambiguous)
@@ -422,10 +416,10 @@ tokenize
         (subi x29 x28 #'\n')
         (beq x29 x0 distinguish-ambiguous)
 
-        (jal x0 tokenize-identifier)
+        (addi x10 x10 1)
+        (jal x0 identifier)
 
     distinguish-ambiguous
-        (subi x10 x10 1)
         (add x28 x0 x31)
     distinguish-ambiguous-intp
         (lb x6 x28)
@@ -468,8 +462,8 @@ tokenize
                 (jal x0 distinguish-ambiguous-int-convert)
             distinguish-ambiguous-int-convert-after
             (mul x31 x31 x28)
-            (addi x30 x0 Token::Integer)
-            (jal x0 tokenize-loop-push-token)
+            (addi x30 x0 (Token Integer))
+            (jal x0 push-token)
         distinguish-ambiguous-symbol
             (subi x2 x2 32)
             (sd x2 x10)
@@ -479,7 +473,7 @@ tokenize
 
             (sub x11 x10 x31)
             (add x10 x0 x31)
-            (jal x1 symbol-table::string->symbol)
+            (jal x1 string->symbol)
             (add x31 x0 x10)
 
             (ld x10 x2)
@@ -488,12 +482,12 @@ tokenize
             (ld x21 (+ x2 24))
             (addi x2 x2 32)
 
-            (addi x30 x0 Token::Symbol)
-            (jal x0 tokenize-loop-push-token)
+            (addi x30 x0 (Token Symbol))
+            (jal x0 push-token)
 
-    tokenize-identifier
-        (addi x30 x0 Token::Symbol)
-        tokenize-identifier-loop
+    identifier
+        (addi x30 x0 (Token Symbol))
+        identifier-loop
             (beq x10 x11 distinguish-ambiguous-symbol)
 
             (lb x28 x10)
@@ -501,38 +495,39 @@ tokenize
 
             ;; delimiters
             (subi x29 x28 #'\r')
-            (beq x29 x0 tokenize-identifier-after-loop)
+            (beq x29 x0 identifier-after-loop)
             (subi x29 x28 #'\n')
-            (beq x29 x0 tokenize-identifier-after-loop)
+            (beq x29 x0 identifier-after-loop)
             (subi x29 x28 #'\t')
-            (beq x29 x0 tokenize-identifier-after-loop)
+            (beq x29 x0 identifier-after-loop)
             (subi x29 x28 #' ')
-            (beq x29 x0 tokenize-identifier-after-loop)
+            (beq x29 x0 identifier-after-loop)
             (subi x29 x28 #'#')
-            (beq x29 x0 tokenize-identifier-after-loop)
+            (beq x29 x0 identifier-after-loop)
             (subi x29 x28 #'"')
-            (beq x29 x0 tokenize-identifier-after-loop)
+            (beq x29 x0 identifier-after-loop)
             (subi x29 x28 #'(')
-            (beq x29 x0 tokenize-identifier-after-loop)
+            (beq x29 x0 identifier-after-loop)
             (subi x29 x28 #')')
-            (beq x29 x0 tokenize-identifier-after-loop)
+            (beq x29 x0 identifier-after-loop)
             (subi x29 x28 #';')
-            (beq x29 x0 tokenize-identifier-after-loop)
+            (beq x29 x0 identifier-after-loop)
 
-            (jal x0 tokenize-identifier-loop)
-        tokenize-identifier-after-loop
+            (jal x0 identifier-loop)
+        identifier-after-loop
             (subi x10 x10 1)
             (jal x0 distinguish-ambiguous-symbol)
 
-    tokenize-comment
+    comment
     (addi x29 x0 #'\n')
-    tokenize-comment-loop
-        (beq x10 x11 tokenize-after-loop)
+    comment-loop
+        (beq x10 x11 after-loop)
 
         (lb x28 x10)
         (addi x10 x10 1)
-        (beq x28 x29 tokenize-loop)
-        (jal x0 tokenize-comment-loop)
+        (beq x28 x29 loop)
+        (jal x0 comment-loop)
+)
 
 ;; Args:
 ;;  x10 - tokens: ArrayBuf<(Token, len, start)>
@@ -564,7 +559,7 @@ tokenize
 ;;  x13 - data-end-ptr
 ;;  x14 - rewrites : ArrayBuf<(program-ptr[i], data-offset)>
 ;;  x15 - rewrites-end-ptr
-assemble
+(module assemble
     (subi x2 x2 24)
     (sd x2 x10)
     (sd (+ x2 8) x11)
@@ -572,64 +567,64 @@ assemble
 
     ;; Allocate assembler struct
     (addi x10 x0 128)
-    (jal x1 malloc)
-    (beq x10 x0 assemble-error)
+    (jal x1 alloc)
+    (beq x10 x0 error)
     (add x20 x0 x10)
 
     ;; allocate 64k for code
     (addi x10 x0 1)
     (slli x10 x10 16)
-    (jal x1 malloc)
-    (beq x10 x0 assemble-error)
+    (jal x1 alloc)
+    (beq x10 x0 error)
     (sd x20 x10)
     (sd (+ x20 8) x10)
     ;; allocate 4k for data
     (addi x10 x0 1)
     (slli x10 x10 12)
-    (jal x1 malloc)
-    (beq x10 x0 assemble-error)
+    (jal x1 alloc)
+    (beq x10 x0 error)
     (sd (+ x20 16) x10)
     (sd (+ x20 24) x10)
     ;; allocate 4k for rewrite
     (addi x10 x0 1)
     (slli x10 x10 12)
-    (jal x1 malloc)
-    (beq x10 x0 assemble-error)
+    (jal x1 alloc)
+    (beq x10 x0 error)
     (sd (+ x20 32) x10)
     (sd (+ x20 40) x10)
     ;; allocate 4k for labels
     (addi x10 x0 1)
     (slli x10 x10 12)
-    (jal x1 malloc)
-    (beq x10 x0 assemble-error)
+    (jal x1 alloc)
+    (beq x10 x0 error)
     (sd (+ x20 48) x10)
     (sd (+ x20 56) x10)
     ;; allocate 4k for constants
     (addi x10 x0 1)
     (slli x10 x10 12)
-    (jal x1 malloc)
-    (beq x10 x0 assemble-error)
+    (jal x1 alloc)
+    (beq x10 x0 error)
     (sd (+ x20 64) x10)
     (sd (+ x20 72) x10)
     ;; allocate 4k for globals
     (addi x10 x0 1)
     (slli x10 x10 12)
-    (jal x1 malloc)
-    (beq x10 x0 assemble-error)
+    (jal x1 alloc)
+    (beq x10 x0 error)
     (sd (+ x20 80) x10)
     (sd (+ x20 88) x10)
     ;; allocate 4k for jumps
     (addi x10 x0 1)
     (slli x10 x10 12)
-    (jal x1 malloc)
-    (beq x10 x0 assemble-error)
+    (jal x1 alloc)
+    (beq x10 x0 error)
     (sd (+ x20 96) x10)
     (sd (+ x20 104) x10)
     ;; allocate 4k for include!-stack
     (addi x10 x0 1)
     (slli x10 x10 12)
-    (jal x1 malloc)
-    (beq x10 x0 assemble-error)
+    (jal x1 alloc)
+    (beq x10 x0 error)
     (sd (+ x20 112) x10)
     (sd (+ x20 120) x10)
 
@@ -637,53 +632,53 @@ assemble
     (ld x11 (+ x2 8))
     (addi x2 x2 16)
 
-    assemble-loop
-        (beq x11 x10 assemble-after-loop)
+    loop
+        (beq x11 x10 after-loop)
 
         (lb x28 x10)
         (addi x10 x10 16)
 
-        (subi x29 x28 Token::Symbol)
-        (beq x29 x0 assemble-add-label)
-        (subi x29 x28 Token::LeftParen)
-        (bne x29 x0 assemble-error)
+        (subi x29 x28 (Token Symbol))
+        (beq x29 x0 add-label)
+        (subi x29 x28 (Token LeftParen))
+        (bne x29 x0 error)
 
-        (beq x11 x10 assemble-error)
+        (beq x11 x10 error)
         (lb x28 x10)
-        (subi x29 x28 Token::Symbol)
-        (bne x29 x0 assemble-error)
+        (subi x29 x28 (Token Symbol))
+        (bne x29 x0 error)
         (ld x28 (+ x10 8))
         (addi x10 x10 16)
 
         (addi x6 x0 Instr::include!)
-        (beq x28 x6 assemble-handle-include)
+        (beq x28 x6 handle-include)
         (addi x6 x0 Instr::define)
-        (bne x28 x6 assemble-handle-opcode)
-    assemble-handle-define
-        (beq x11 x10 assemble-error)
+        (bne x28 x6 handle-opcode)
+    handle-define
+        (beq x11 x10 error)
         (lb x28 x10)
-        (subi x29 x28 Token::Symbol)
-        (bne x29 x0 assemble-error)
+        (subi x29 x28 (Token Symbol))
+        (bne x29 x0 error)
         (ld x28 (+ x10 8))
         (addi x10 x10 16)
 
-        (beq x11 x10 assemble-error)
+        (beq x11 x10 error)
         (lb x6 x10)
         (ld x30 (+ x10 8))
         (lw x31 (+ x10 4))
         (addi x10 x10 16)
-        (subi x7 x6 Token::Integer)
-        (beq x7 x0 assemble-handle-define-int)
-        (subi x7 x6 Token::Char)
-        (beq x7 x0 assemble-handle-define-char)
-        (subi x7 x6 Token::Pound)
-        (beq x7 x0 assemble-handle-define-vec)
-        (subi x7 x6 Token::String)
-        (bne x7 x0 assemble-error)
+        (subi x7 x6 (Token Integer))
+        (beq x7 x0 handle-define-int)
+        (subi x7 x6 (Token Char))
+        (beq x7 x0 handle-define-char)
+        (subi x7 x6 (Token Pound))
+        (beq x7 x0 handle-define-vec)
+        (subi x7 x6 (Token String))
+        (bne x7 x0 error)
 
-        assemble-handle-define-string
+        handle-define-string
             (subi x31 x31 2)
-            (beq x31 x0 assemble-error)
+            (beq x31 x0 error)
             ;; add to globals
             (ld x24 (+ x20 80))
             (ld x23 (+ x20 16))
@@ -712,18 +707,18 @@ assemble
                 (andi x6 x23 7)
                 (addi x7 x0 8)
                 (sub x7 x7 x6)
-                (bne x6 x0 assemble-handle-define-align)
+                (bne x6 x0 handle-define-align)
                 (sd (+ x20 16) x23)
-                (jal x0 assemble-handle-define-after)
-            assemble-handle-define-align
+                (jal x0 handle-define-after)
+            handle-define-align
                 (sb x23 x0)
                 (addi x23 x23 1)
                 (subi x7 x7 1)
-                (bne x7 x0 assemble-handle-define-align)
+                (bne x7 x0 handle-define-align)
                 (sd (+ x20 16) x23)
-                (jal x0 assemble-handle-define-after)
+                (jal x0 handle-define-after)
             assemble-handle-define-string-loop-escape
-                (beq x30 x31 assemble-error)
+                (beq x30 x31 error)
                 (lb x5 x30)
                 (addi x30 x30 1)
                 (subi x7 x5 #'\\')
@@ -744,14 +739,14 @@ assemble
                 (subi x7 x5 #'0')
                 (addi x6 x0 #'\0')
                 (beq x7 x0 assemble-handle-define-string-loop-escape-after)
-                (jal x0 assemble-error)
+                (jal x0 error)
 
-        assemble-handle-define-vec
-            (beq x11 x10 assemble-error)
+        handle-define-vec
+            (beq x11 x10 error)
             (lb x6 x10)
             (addi x10 x10 16)
-            (subi x6 x6 Token::LeftParen)
-            (bne x6 x0 assemble-error)
+            (subi x6 x6 (Token LeftParen))
+            (bne x6 x0 error)
 
             ;; add to globals
             (ld x24 (+ x20 80))
@@ -762,14 +757,14 @@ assemble
             (add x28 x0 x0)
 
             assemble-handle-define-vec-loop
-                (beq x11 x10 assemble-error)
+                (beq x11 x10 error)
                 (lb x6 x10)
                 (ld x7 (+ x10 8))
                 (addi x10 x10 16)
-                (subi x5 x6 Token::RightParen)
+                (subi x5 x6 (Token RightParen))
                 (beq x5 x0 assemble-handle-define-vec-loop-after)
-                (subi x5 x6 Token::Integer)
-                (bne x5 x0 assemble-error)
+                (subi x5 x6 (Token Integer))
+                (bne x5 x0 error)
 
                 (addi x28 x28 1)
                 (sb x23 x7)
@@ -777,7 +772,7 @@ assemble
 
                 (jal x0 assemble-handle-define-vec-loop)
             assemble-handle-define-vec-loop-after
-            (beq x28 x0 assemble-error)
+            (beq x28 x0 error)
             (sd (+ x24 16) x28)
             (addi x24 x24 24)
             (sd (+ x20 80) x24)
@@ -785,33 +780,33 @@ assemble
             (andi x6 x23 7)
             (addi x7 x0 8)
             (sub x7 x7 x6)
-            (bne x6 x0 assemble-handle-define-align)
+            (bne x6 x0 handle-define-align)
             (sd (+ x20 16) x23)
-            (jal x0 assemble-handle-define-after)
+            (jal x0 handle-define-after)
 
-        assemble-handle-define-int
-        assemble-handle-define-char
+        handle-define-int
+        handle-define-char
             (ld x22 (+ x20 64))
             (sw x22 x28)
             (sw (+ x22 4) x30)
             (addi x22 x22 8)
             (sd (+ x20 64) x22)
-        assemble-handle-define-after
-            (beq x11 x10 assemble-error)
+        handle-define-after
+            (beq x11 x10 error)
             (lb x28 x10)
-            (subi x28 x28 Token::RightParen)
+            (subi x28 x28 (Token RightParen))
             (addi x10 x10 16)
-            (bne x28 x0 assemble-error)
-            (jal x0 assemble-loop)
-    assemble-handle-include
-        (beq x10 x11 assemble-error)
+            (bne x28 x0 error)
+            (jal x0 loop)
+    handle-include
+        (beq x10 x11 error)
         (lb x6 x10)
-        (subi x6 x6 Token::String)
-        (bne x6 x0 assemble-error)
+        (subi x6 x6 (Token String))
+        (bne x6 x0 error)
         (addi x10 x10 16)
         (lb x6 x10)
-        (subi x6 x6 Token::RightParen)
-        (bne x6 x0 assemble-error)
+        (subi x6 x6 (Token RightParen))
+        (bne x6 x0 error)
         (ld x6 (- x10 8))
         (lw x7 (- x10 12))
         (addi x10 x10 16)
@@ -835,9 +830,9 @@ assemble
 
         (ld x20 x2)
         (addi x2 x2 8)
-        (jal x0 assemble-loop)
+        (jal x0 loop)
 
-    assemble-add-label
+    add-label
         (ld x28 (- x10 8))
         (ld x23 (+ x20 48))
         (sd x23 x28)
@@ -847,10 +842,15 @@ assemble
         (sd (+ 8 x23) x6)
         (addi x23 x23 16)
         (sd (+ x20 48) x23)
-        (jal x0 assemble-loop)
+        (jal x0 loop)
 
-    assemble-handle-opcode
+    handle-opcode
         (ld x6 (- x10 8))
+
+        ;; Check that opcode is not a register
+        (subi x7 x6 Instr::add)
+        (blt x7 x0 error)
+
         ;; R instructions
         (subi x7 x6 Instr::rem)
         (subi x7 x7 1)
@@ -896,6 +896,8 @@ assemble
 
         (subi x7 x6 Instr::ebreak)
         (beq x7 x0 assemble-ebreak)
+
+        (jal x0 error)
 
     (define funct3-table #(0 0 4 6 7 1 5 5 2 3 0 4 6    ;; r
                            0 0 4 6 7 1 5 5 2 3          ;; i
@@ -1080,16 +1082,16 @@ assemble
     assemble-la
         ;; rd
         (jal x1 assemble-unwrap-register)
-        (beq x10 x11 assemble-error)
+        (beq x10 x11 error)
         (lb x7 x10)
-        (subi x7 x7 Token::Symbol)
-        (bne x7 x0 assemble-error)
+        (subi x7 x7 (Token Symbol))
+        (bne x7 x0 error)
         (ld x7 (+ x10 8))
         (addi x10 x10 16)
         (ld x21 (+ x20 88))
         (ld x22 (+ x20 80))
         assemble-la-global-loop
-            (beq x21 x22 assemble-error)
+            (beq x21 x22 error)
             (ld x28 x21)
             (beq x28 x7 assemble-la-global-loop-after)
             (addi x21 x21 24)
@@ -1203,18 +1205,18 @@ assemble
         (addi x21 x21 4)
         (sd x20 x21)
 
-        (beq x10 x11 assemble-error)
+        (beq x10 x11 error)
         (lb x6 x10)
-        (subi x6 x6 Token::RightParen)
-        (bne x6 x0 assemble-error)
+        (subi x6 x6 (Token RightParen))
+        (bne x6 x0 error)
         (addi x10 x10 16)
-        (jal x0 assemble-loop)
+        (jal x0 loop)
 
     assemble-unwrap-label
-        (beq x10 x11 assemble-error)
+        (beq x10 x11 error)
         (lb x6 x10)
-        (subi x6 x6 Token::Symbol)
-        (bne x6 x0 assemble-error)
+        (subi x6 x6 (Token Symbol))
+        (bne x6 x0 error)
         (ld x6 (+ x10 8))
         (addi x10 x10 16)
         (ld x28 (+ x20 56))
@@ -1250,31 +1252,31 @@ assemble
             (jalr x0 x1)
 
     assemble-unwrap-register
-        (beq x10 x11 assemble-error)
+        (beq x10 x11 error)
         (lb x6 x10)
-        (subi x6 x6 Token::Symbol)
-        (bne x6 x0 assemble-error)
+        (subi x6 x6 (Token Symbol))
+        (bne x6 x0 error)
         (ld x6 (+ x10 8))
         (addi x10 x10 16)
         (subi x6 x6 Register::x31)
         (subi x6 x6 1)
-        (bge x6 x0 assemble-error)
+        (bge x6 x0 error)
         (addi x6 x6 Register::x31)
         (jalr x0 x1)
 
     assemble-unwrap-imm
-        (beq x10 x11 assemble-error)
+        (beq x10 x11 error)
         (lb x6 x10)
         (addi x10 x10 16)
-        (subi x7 x6 Token::LeftParen)
+        (subi x7 x6 (Token LeftParen))
         (beq x7 x0 assemble-unwrap-imm-len)
-        (subi x7 x6 Token::Symbol)
+        (subi x7 x6 (Token Symbol))
         (beq x7 x0 assemble-unwrap-imm-symbol)
-        (subi x7 x6 Token::Char)
+        (subi x7 x6 (Token Char))
         (beq x7 x0 assemble-unwrap-imm-imm)
-        (subi x7 x6 Token::Integer)
+        (subi x7 x6 (Token Integer))
         (beq x7 x0 assemble-unwrap-imm-imm)
-        (jal x0 assemble-error)
+        (jal x0 error)
 
         assemble-unwrap-imm-imm
             (ld x6 (- x10 8))
@@ -1285,7 +1287,7 @@ assemble
             (ld x28 (+ x20 72))
             (ld x29 (+ x20 64))
             assemble-unwrap-imm-symbol-loop
-                (beq x28 x29 assemble-error)
+                (beq x28 x29 error)
                 (lw x7 x28)
                 (beq x6 x7 assemble-unwrap-imm-symbol-loop-after)
                 (addi x28 x28 8)
@@ -1295,23 +1297,25 @@ assemble
                 (jalr x0 x1)
 
         assemble-unwrap-imm-len
+            (beq x10 x11 error)
             (lb x6 x10)
-            (subi x6 x6 Token::Symbol)
-            (bne x6 x0 assemble-error)
+            (subi x6 x6 (Token Symbol))
+            (bne x6 x0 error)
             (ld x6 (+ x10 8))
             (subi x6 x6 Instr::len)
-            (bne x6 x0 assemble-error)
+            (bne x6 x0 error)
             (addi x10 x10 16)
 
+            (beq x10 x11 error)
             (lb x6 x10)
-            (subi x6 x6 Token::Symbol)
-            (bne x6 x0 assemble-error)
+            (subi x6 x6 (Token Symbol))
+            (bne x6 x0 error)
             (ld x6 (+ x10 8))
             (addi x10 x10 16)
             (ld x28 (+ x20 88))
             (ld x29 (+ x20 80))
             assemble-unwrap-imm-len-loop
-                (beq x28 x29 assemble-error)
+                (beq x28 x29 error)
                 (ld x7 x28)
                 (beq x6 x7 assemble-unwrap-imm-len-loop-after)
                 (addi x28 x28 24)
@@ -1320,25 +1324,25 @@ assemble
                 (lw x6 (+ x28 16))
                 (lb x7 x10)
                 (addi x10 x10 16)
-                (subi x7 x7 Token::RightParen)
-                (bne x7 x0 assemble-error)
+                (subi x7 x7 (Token RightParen))
+                (bne x7 x0 error)
                 (jalr x0 x1)
 
     assemble-unwrap-offset
         ;; Have to zero this in case it is just a register
         (add x7 x0 x0)
-        (beq x10 x11 assemble-error)
+        (beq x10 x11 error)
         (lb x6 x10)
-        (subi x7 x6 Token::Symbol)
+        (subi x7 x6 (Token Symbol))
         (beq x7 x0 assemble-unwrap-register)
-        (subi x7 x6 Token::LeftParen)
-        (bne x7 x0 assemble-error)
+        (subi x7 x6 (Token LeftParen))
+        (bne x7 x0 error)
         (addi x10 x10 16)
 
-        (beq x10 x11 assemble-error)
+        (beq x10 x11 error)
         (lb x6 x10)
-        (subi x7 x6 Token::Symbol)
-        (bne x7 x0 assemble-error)
+        (subi x7 x6 (Token Symbol))
+        (bne x7 x0 error)
         (ld x6 (+ x10 8))
         (addi x10 x10 16)
         (addi x25 x0 1)
@@ -1346,19 +1350,19 @@ assemble
         (beq x7 x0 assemble-unwrap-offset-after-negate)
         (addi x25 x0 -1)
         (subi x7 x6 Instr::-)
-        (bne x7 x0 assemble-error)
+        (bne x7 x0 error)
 
         assemble-unwrap-offset-after-negate
         (subi x2 x2 8)
         (sd x2 x1)
 
-        (beq x10 x11 assemble-error)
+        (beq x10 x11 error)
         (lb x6 x10)
-        (subi x7 x6 Token::Symbol)
+        (subi x7 x6 (Token Symbol))
         (beq x7 x0 assemble-unwrap-offset-reg-first)
 
-        (subi x7 x6 Token::Integer)
-        (bne x7 x0 assemble-error)
+        (subi x7 x6 (Token Integer))
+        (bne x7 x0 error)
         (jal x1 assemble-unwrap-imm)
         (add x27 x0 x6)
         (jal x1 assemble-unwrap-register)
@@ -1383,10 +1387,10 @@ assemble
         (add x26 x0 x6)
 
         assemble-unwrap-offset-after
-        (beq x10 x11 assemble-error)
+        (beq x10 x11 error)
         (lb x6 x10)
-        (subi x6 x6 Token::RightParen)
-        (bne x6 x0 assemble-error)
+        (subi x6 x6 (Token RightParen))
+        (bne x6 x0 error)
         (addi x10 x10 16)
         (add x6 x0 x26)
         (mul x7 x27 x25)
@@ -1394,16 +1398,16 @@ assemble
         (addi x2 x2 8)
         (jalr x0 x1)
 
-    assemble-after-loop
+    after-loop
         (ld x25 (+ x20 112))
         (ld x26 (+ x20 120))
-        (beq x25 x26 assemble-after-loop-free)
+        (beq x25 x26 after-loop-free)
         (subi x25 x25 16)
         (sd (+ x20 112) x25)
         (ld x10 x25)
         (ld x11 (+ x25 8))
-        (jal x0 assemble-loop)
-    assemble-after-loop-free
+        (jal x0 loop)
+    after-loop-free
         ;; replace jumps
         (ld x21 (+ x20 104))
         (ld x22 (+ x20 96))
@@ -1414,7 +1418,7 @@ assemble
             (ld x6 x21)
             (ld x23 (+ x20 56))
             assemble-after-loop-free-loop
-                (beq x23 x24 assemble-error)
+                (beq x23 x24 error)
                 (ld x7 x23)
                 (beq x6 x7 assemble-after-loop-free-loop-after)
                 (addi x23 x23 16)
@@ -1506,10 +1510,11 @@ assemble
         (ld x1 x2)
         (addi x2 x2 8)
         (jalr x0 x1)
-    assemble-error
+    error
         (addi x10 x0 30)
         (addi x17 x0 SYS_EXIT)
         (ecall)
+)
 
 ;; INPUT:
 ;;  x10 - program-ptr: ArrayBuf<u32>
@@ -1519,45 +1524,45 @@ assemble
 ;;  x14 - rewrite-ptr: ArrayBuf<(program-ptr[i], usize)>
 ;;  x15 - rewrite-end
 ;;  x16 - Output fd
-elf
+(module elf
     ;; 0x400000
-    (define Elf::ENTRY_LOCATION 4194304)
+    (define ENTRY_LOCATION 4194304)
     ;; 0x600000
-    (define Elf::DATA_LOCATION 6291456)
+    (define DATA_LOCATION 6291456)
     ;; 64 + 56 + 56
-    (define Elf::program_offset 176)
-    (define elf-ehdr #(127 69 76 70 2 1 1 0 0 0 0 0 0 0 0 0
-                       2 0 ;; e_type
-                       243 0 ;; e_machine
-                       1 0 0 0 ;; e_version
-                       176 0 64 0 0 0 0 0 ;; e_entry
-                       64 0 0 0 0 0 0 0 ;; e_phoff
-                       0 0 0 0 0 0 0 0 ;; e_shoff
-                       0 0 0 0 ;; e_flags
-                       64 0 ;; e_ehsize
-                       56 0 ;; e_phentsize
-                       2 0 ;; e_num
-                       64 0 ;; e_shentsize
-                       0 0 ;; e_num
-                       0 0)) ;; e_shstrndx
+    (define program_offset 176)
+    (define ehdr #(127 69 76 70 2 1 1 0 0 0 0 0 0 0 0 0
+                   2 0 ;; e_type
+                   243 0 ;; e_machine
+                   1 0 0 0 ;; e_version
+                   176 0 64 0 0 0 0 0 ;; e_entry
+                   64 0 0 0 0 0 0 0 ;; e_phoff
+                   0 0 0 0 0 0 0 0 ;; e_shoff
+                   0 0 0 0 ;; e_flags
+                   64 0 ;; e_ehsize
+                   56 0 ;; e_phentsize
+                   2 0 ;; e_num
+                   64 0 ;; e_shentsize
+                   0 0 ;; e_num
+                   0 0)) ;; e_shstrndx
 
-    (define elf-phdr-text #(1 0 0 0 ;; p_type
-                            5 0 0 0 ;; p_flags
-                            0 0 0 0 0 0 0 0 ;; p_offset = 0
-                            0 0 64 0 0 0 0 0 ;; p_vaddr = ENTRY_LOCATION
-                            0 0 64 0 0 0 0 0 ;; p_paddr = ENTRY_LOCATION
-                            0 0 0 0 0 0 0 0 ;; p_filesz
-                            0 0 0 0 0 0 0 0 ;; p_memsz
-                            0 16 0 0 0 0 0 0)) ;; p_align
+    (define phdr-text #(1 0 0 0 ;; p_type
+                        5 0 0 0 ;; p_flags
+                        0 0 0 0 0 0 0 0 ;; p_offset = 0
+                        0 0 64 0 0 0 0 0 ;; p_vaddr = ENTRY_LOCATION
+                        0 0 64 0 0 0 0 0 ;; p_paddr = ENTRY_LOCATION
+                        0 0 0 0 0 0 0 0 ;; p_filesz
+                        0 0 0 0 0 0 0 0 ;; p_memsz
+                        0 16 0 0 0 0 0 0)) ;; p_align
 
-    (define elf-phdr-data #(1 0 0 0 ;; p_type
-                            6 0 0 0 ;; p_flags
-                            0 0 0 0 0 0 0 0 ;; p_offset
-                            0 0 0 0 0 0 0 0 ;; p_vaddr
-                            0 0 0 0 0 0 0 0 ;; p_paddr
-                            0 0 0 0 0 0 0 0 ;; p_filesz
-                            0 0 0 0 0 0 0 0 ;; p_memsz
-                            0 16 0 0 0 0 0 0)) ;; p_align
+    (define phdr-data #(1 0 0 0 ;; p_type
+                        6 0 0 0 ;; p_flags
+                        0 0 0 0 0 0 0 0 ;; p_offset
+                        0 0 0 0 0 0 0 0 ;; p_vaddr
+                        0 0 0 0 0 0 0 0 ;; p_paddr
+                        0 0 0 0 0 0 0 0 ;; p_filesz
+                        0 0 0 0 0 0 0 0 ;; p_memsz
+                        0 16 0 0 0 0 0 0)) ;; p_align
 
     (add x20 x0 x10)
     (add x21 x0 x11)
@@ -1567,19 +1572,20 @@ elf
     (add x25 x0 x15)
     (add x26 x0 x16)
 
+    ;; align
     (andi x5 x21 7)
-    (beq x5 x0 elf-rewrite)
+    (beq x5 x0 rewrite)
     (sw x21 x0)
     (addi x21 x21 4)
 
-    elf-rewrite
+    rewrite
     (sub x31 x21 x20)
-    (addi x31 x31 Elf::program_offset)
+    (addi x31 x31 program_offset)
     (addi x30 x0 96)
     (slli x30 x30 16)
     (add x31 x31 x30)
-    elf-rewrite-loop
-        (beq x24 x25 elf-rewrite-done)
+    rewrite-loop
+        (beq x24 x25 rewrite-done)
         (ld x5 x24)
         (ld x6 (+ x24 8))
         (addi x24 x24 16)
@@ -1606,31 +1612,31 @@ elf
         (lw x30 (+ x5 4))
         (or x30 x30 x6)
         (sw (+ x5 4) x30)
-        (jal x0 elf-rewrite-loop)
-    elf-rewrite-done
+        (jal x0 rewrite-loop)
+    rewrite-done
 
     ;; ehdr
     ;; write(fd, msg, len)
     (add x10 x0 x26)
-    (la x11 elf-ehdr)
-    (addi x12 x0 (len elf-ehdr))
+    (la x11 ehdr)
+    (addi x12 x0 (len ehdr))
     (addi x17 x0 SYS_WRITE)
     (ecall)
 
     ;; phdrs
-    (la x11 elf-phdr-text)
-    (addi x5 x21 Elf::program_offset)
+    (la x11 phdr-text)
+    (addi x5 x21 program_offset)
     (sub x5 x5 x20)
     (sd (+ x11 32) x5)
     (sd (+ x11 40) x5)
 
     ;; write(fd, msg, len)
     (add x10 x0 x26)
-    (addi x12 x0 (len elf-phdr-text))
+    (addi x12 x0 (len phdr-text))
     (addi x17 x0 SYS_WRITE)
     (ecall)
 
-    (la x11 elf-phdr-data)
+    (la x11 phdr-data)
     (sd (+ x11 8) x5)
     (addi x6 x0 96)
     (slli x6 x6 16)
@@ -1643,7 +1649,7 @@ elf
 
     ;; write(fd, msg, len)
     (add x10 x0 x26)
-    (addi x12 x0 (len elf-phdr-data))
+    (addi x12 x0 (len phdr-data))
     (addi x17 x0 SYS_WRITE)
     (ecall)
 
@@ -1661,3 +1667,4 @@ elf
     (ecall)
 
     (jalr x0 x1)
+)
