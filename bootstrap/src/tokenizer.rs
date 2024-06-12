@@ -44,23 +44,10 @@ pub struct TokenInfo {
     pub end: usize,
 }
 
-pub fn tokenize(input: Vec<u8>, filename: String) -> Tokenizer {
-    let mut t = Tokenizer {
-        position: 0,
-        input: input,
-        tokens: Vec::new(),
-        token_info: Vec::new(),
-        lines: Vec::new(),
-        filename: filename,
-        err: false,
-    };
-    t.tokenize();
-    t
-}
-
 pub struct Tokenizer {
     pub position: usize,
     pub input: Vec<u8>,
+    pub token_position: usize,
     pub tokens: Vec<Token>,
     pub token_info: Vec<TokenInfo>,
     pub lines: Vec<(usize, usize)>,
@@ -69,7 +56,41 @@ pub struct Tokenizer {
 }
 
 impl Tokenizer {
-    fn next(&mut self) -> Option<u8> {
+    pub fn new(input: Vec<u8>, filename: String) -> Tokenizer {
+        Tokenizer {
+            position: 0,
+            input: input,
+            token_position: 0,
+            tokens: Vec::new(),
+            token_info: Vec::new(),
+            lines: Vec::new(),
+            filename: filename,
+            err: false,
+        }
+    }
+
+    pub fn next(&mut self) -> Option<Token> {
+        assert!(self.token_position <= self.tokens.len());
+        if self.token_position == self.tokens.len() {
+            // shitty bc
+            let t = self.tokenize()?;
+            self.tokens.push(t);
+        }
+        self.token_position += 1;
+        Some(self.tokens[self.token_position - 1])
+    }
+
+    pub fn peek(&mut self) -> Option<Token> {
+        assert!(self.token_position <= self.tokens.len());
+        if self.token_position == self.tokens.len() {
+            // shitty bc
+            let t = self.tokenize()?;
+            self.tokens.push(t);
+        }
+        Some(self.tokens[self.token_position])
+    }
+
+    fn _next(&mut self) -> Option<u8> {
         if self.position < self.input.len() {
             self.position += 1;
             Some(self.input[self.position - 1])
@@ -78,7 +99,7 @@ impl Tokenizer {
         }
     }
 
-    fn peek(&self) -> Option<u8> {
+    fn _peek(&self) -> Option<u8> {
         if self.position < self.input.len() {
             Some(self.input[self.position])
         } else {
@@ -86,27 +107,35 @@ impl Tokenizer {
         }
     }
 
-    fn tokenize(&mut self) {
-        while let Some(c) = self.next() {
+    fn tokenize(&mut self) -> Option<Token> {
+        if let Some(c) = self._next() {
             match c {
                 b'(' => {
-                    self.tokens.push(Token::LParen);
                     self.token_info.push(TokenInfo { start: self.position-1, end: self.position, line: self.lines.len() });
+                    Some(Token::LParen)
                 }
                 b')' => {
-                    self.tokens.push(Token::RParen);
                     self.token_info.push(TokenInfo { start: self.position-1, end: self.position, line: self.lines.len() });
+                    Some(Token::RParen)
                 }
-                b' ' | b'\t' | b'\r' => (),
-                b'\n' => self.newline(),
-                b';' => self.parse_comment(),
+                b' ' | b'\t' | b'\r' => self.tokenize(),
+                b'\n' => {
+                    self.newline();
+                    self.tokenize()
+                }
+                b';' => {
+                    self.parse_comment();
+                    self.tokenize()
+                }
                 b'"' => self.parse_string(),
                 b'#' => self.parse_literal(),
                 b'0' ..= b'9' | b'+' | b'-' => self.parse_ambiguous(),
                 _ => self.parse_identifier(self.position - 1, self.lines.len()),
             }
+        } else {
+            self.newline();
+            None
         }
-        self.newline();
     }
 
     fn newline(&mut self) {
@@ -115,7 +144,9 @@ impl Tokenizer {
         } else {
             0
         };
-        self.lines.push((s, self.position));
+        if s != self.position {
+            self.lines.push((s, self.position));
+        }
     }
 
     fn idx_in_line(&self, idx: usize) -> usize {
@@ -127,13 +158,13 @@ impl Tokenizer {
         idx
     }
 
-    fn parse_string(&mut self) {
+    fn parse_string(&mut self) -> Option<Token> {
         let start = self.position;
         let line = self.lines.len();
 
-        while let Some(c) = self.next() {
+        while let Some(c) = self._next() {
             if c == b'\\' {
-                match self.next() {
+                match self._next() {
                     Some(b'r') | Some(b'n') | Some(b't') | Some(b'0') | Some(b'\\') | Some(b'"') => (),
                     Some(c) => {
                         let c = c as char;
@@ -145,43 +176,41 @@ impl Tokenizer {
                     None => {
                         eprintln!("Unclosed string beginning on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
                         self.err = true;
-                        return;
+                        return None;
                     },
                 }
             } else if c == b'\n' {
                 self.newline();
             } else if c == b'"' {
-                self.tokens.push(Token::String(start, self.position-1));
                 self.token_info.push(TokenInfo { start: start-1, end: self.position, line: line });
-                return;
+                return Some(Token::String(start, self.position - 1));
             }
         }
         eprintln!("Unclosed string beginning on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
         self.err = true;
         if line < self.lines.len() {
             self.position = self.lines[line].1;
-            self.tokens.push(Token::String(start, self.position-1));
-            self.token_info.push(TokenInfo { start: start-1, end: self.position, line: line });
         }
+        self.token_info.push(TokenInfo { start: start-1, end: self.position, line: line });
+        Some(Token::String(start, self.position - 1))
     }
 
-    fn parse_literal(&mut self) {
+    fn parse_literal(&mut self) -> Option<Token> {
         let start = self.position - 1;
         let line = self.lines.len();
 
-        if let Some(c) = self.peek() {
+        if let Some(c) = self._peek() {
             if c != b'\'' {
-                self.tokens.push(Token::Pound);
                 self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
-                return;
+                return Some(Token::Pound);
             }
         } else {
             eprintln!("Unexpected EOF on line {line} at index {} in file `{}`: expected array or character literal.", self.idx_in_line(start), self.filename);
             self.err = true;
-            return;
+            return None;
         }
-        self.next();
-        let ch = match self.next() {
+        self._next();
+        let ch = match self._next() {
             Some(b'\'') => {
                 eprintln!("Empty character literal beginning on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
                 self.err = true;
@@ -190,17 +219,17 @@ impl Tokenizer {
             None => {
                 eprintln!("Unclosed char literal on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
                 self.err = true;
-                return;
+                return None;
             },
             Some(b'\n') => {
                 self.newline();
                 b'\n'
             }
-            Some(b'\\') => match self.next() {
+            Some(b'\\') => match self._next() {
                 None => {
                     eprintln!("Unclosed char literal on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
                     self.err = true;
-                    return;
+                    return None;
                 }
                 Some(b'\\') => b'\\',
                 Some(b'\'') => b'\'',
@@ -218,10 +247,10 @@ impl Tokenizer {
             Some(c) => c,
         };
 
-        if let Some(c) = self.next() {
+        if let Some(c) = self._next() {
             if c == b'\'' {
-                self.tokens.push(Token::Char(ch));
                 self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
+                return Some(Token::Char(ch));
             } else {
                 eprintln!("Unclosed char literal on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
                 self.err = true;
@@ -230,10 +259,11 @@ impl Tokenizer {
             eprintln!("Unclosed char literal on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
             self.err = true;
         }
+        None
     }
 
     fn parse_comment(&mut self) {
-        while let Some(c) = self.next() {
+        while let Some(c) = self._next() {
             if c == b'\n' {
                 self.newline();
                 return;
@@ -241,8 +271,8 @@ impl Tokenizer {
         }
     }
 
-    fn parse_identifier(&mut self, start: usize, line: usize) {
-        while let Some(c) = self.peek() {
+    fn parse_identifier(&mut self, start: usize, line: usize) -> Option<Token> {
+        while let Some(c) = self._peek() {
             match c {
                 b' ' | b'\t' | b'\r' | b'\n' | b'(' | b')' | b'#' | b';' | b'"' => break,
                 _ => self.position += 1,
@@ -250,14 +280,14 @@ impl Tokenizer {
         }
 
         let s = get_symbol(self.input[start..self.position].to_vec());
-        self.tokens.push(Token::Symbol(s));
         self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
+        Some(Token::Symbol(s))
     }
 
-    fn parse_ambiguous(&mut self) {
+    fn parse_ambiguous(&mut self) -> Option<Token> {
         let start = self.position - 1;
         let line = self.lines.len();
-        while let Some(c) = self.peek() {
+        while let Some(c) = self._peek() {
             match c {
                 // still ambiguous
                 b'0' ..= b'9' | b'+' | b'-' => (),
@@ -269,14 +299,14 @@ impl Tokenizer {
         self.distinguish_ambiguous(start, self.position, line)
     }
 
-    fn distinguish_ambiguous(&mut self, start: usize, end: usize, line: usize) {
+    fn distinguish_ambiguous(&mut self, start: usize, end: usize, line: usize) -> Option<Token> {
+        self.token_info.push(TokenInfo { start: start, end: end, line: line });
         if let Some(i) = self.intp(start, end, line) {
-            self.tokens.push(Token::Integer(i));
+            Some(Token::Integer(i))
         } else {
             let s = get_symbol(self.input[start..end].to_vec());
-            self.tokens.push(Token::Symbol(s));
+            Some(Token::Symbol(s))
         }
-        self.token_info.push(TokenInfo { start: start, end: end, line: line });
     }
 
     fn intp(&mut self, o_start: usize, end: usize, line: usize) -> Option<i64> {

@@ -2,7 +2,7 @@ mod elf;
 mod symbols;
 mod tokenizer;
 
-use tokenizer::{get_symbol, get_value, Token, TokenInfo};
+use tokenizer::{get_symbol, get_value, Token, Tokenizer};
 
 use std::{env, mem};
 use std::collections::HashMap;
@@ -51,8 +51,8 @@ fn main() {
 
     symbols::init();
     let input = read_file(&input_file).unwrap_or_else(|| exit(1));
-    let tokenizer::Tokenizer { input, tokens, token_info, err, filename, .. } = tokenizer::tokenize(input, input_file);
-    let (program, data, rodata, rewrites) = assemble(input, filename, tokens, token_info, err);
+    let tokenizer = Tokenizer::new(input, input_file);
+    let (program, data, rodata, rewrites) = assemble(tokenizer);
     let e = if debug {
         elf::Elf::new_debug(program, data, rodata, rewrites)
     } else {
@@ -92,23 +92,18 @@ fn read_file<P: AsRef<std::path::Path>>(path: P) -> Option<Vec<u8>> {
     }
 }
 
-fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, token_info: Vec<TokenInfo>, err: bool)
-    -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>)
+fn assemble(tokenizer: Tokenizer) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>)
 {
     let mut root = Module::new(0, None, false);
-    let mut path: PathBuf = filename.clone().into();
+    let mut path: PathBuf = tokenizer.filename.clone().into();
     path.pop();
     root.path = path;
-    let name = get_symbol(filename.rsplitn(2, '.').last().unwrap().as_bytes().to_vec());
+    let name = get_symbol(tokenizer.filename.rsplitn(2, '.').last().unwrap().as_bytes().to_vec());
     root.children.insert(name, (false, Unit::Module(1)));
 
     let mut asm = Asm {
-        input: input,
-        filename: filename,
-        tokens: tokens,
-        token_info: token_info,
-        position: 0,
-        err: err,
+        tokenizer: tokenizer,
+        err: false,
         modules: vec![root, Module::new(1, Some(0), true)],
         module: 1,
         data: Vec::new(),
@@ -121,12 +116,12 @@ fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, token_info: Ve
         if asm.peek().is_none() {
             break;
         }
-        eprintln!("Unxepected closing parenthesis in file `{}` at line {}.", asm.filename, asm.token_info[asm.position].line);
+        eprintln!("Unxepected closing parenthesis in file `{}` at line {}.", asm.tokenizer.filename, asm.tokenizer.token_info[asm.tokenizer.token_position].line);
         asm.err = true;
-        asm.position += 1;
+        asm.tokenizer.token_position += 1;
     }
     let (code, data, rodata, rewrites) = asm.finish();
-    if asm.err {
+    if asm.tokenizer.err || asm.err {
         exit(1);
     }
     (code, data, rodata, rewrites)
@@ -134,11 +129,7 @@ fn assemble(input: Vec<u8>, filename: String, tokens: Vec<Token>, token_info: Ve
 
 
 struct Asm {
-    input: Vec<u8>,
-    filename: String,
-    tokens: Vec<Token>,
-    token_info: Vec<TokenInfo>,
-    position: usize,
+    tokenizer: Tokenizer,
     err: bool,
     modules: Vec<Module>,
     module: usize,
@@ -257,7 +248,7 @@ impl Asm {
                     }
                 },
                 Token::RParen => {
-                    self.position -= 1;
+                    self.backtrack();
                     return;
                 }
                 _ => {
@@ -372,7 +363,7 @@ impl Asm {
         match self.next() {
             Some(Token::RParen) => (),
             Some(Token::LParen) => {
-                self.position -= 1;
+                self.backtrack();
                 eprintln!("Forgot closing parenthesis in import statement.");
                 eprintln!("\tNote: each import requires its own import statement.");
                 self.err = true;
@@ -665,20 +656,11 @@ impl Asm {
             return Some(m_id);
         };
 
-        let tokenizer::Tokenizer { mut input, mut tokens, mut token_info, err, mut filename, .. } = tokenizer::tokenize(include_input, file_path.display().to_string());
-        self.err |= err;
-        mem::swap(&mut self.input, &mut input);
-        mem::swap(&mut self.tokens, &mut tokens);
-        mem::swap(&mut self.token_info, &mut token_info);
-        mem::swap(&mut self.filename, &mut filename);
-        let position = self.position;
-        self.position = 0;
+        let mut t = Tokenizer::new(include_input, file_path.display().to_string());
+        mem::swap(&mut self.tokenizer, &mut t);
         self.assemble();
-        self.position = position;
-        mem::swap(&mut self.input, &mut input);
-        mem::swap(&mut self.tokens, &mut tokens);
-        mem::swap(&mut self.token_info, &mut token_info);
-        mem::swap(&mut self.filename, &mut filename);
+        self.err |= self.tokenizer.err;
+        mem::swap(&mut self.tokenizer, &mut t);
 
         self.module = old_id;
         Some(m_id)
@@ -688,7 +670,7 @@ impl Asm {
         let ident = match self.next() {
             Some(Token::Symbol(s)) => s,
             Some(Token::LParen) => {
-                self.position -= 1;
+                self.backtrack();
                 eprintln!("Invalid module declaration, expected identifier.");
                 self.err = true;
                 0
@@ -730,9 +712,9 @@ impl Asm {
         let mut v = Vec::with_capacity(end-start);
         let mut i = start;
         while i < end {
-            if self.input[i] == b'\\' {
+            if self.tokenizer.input[i] == b'\\' {
                 i += 1;
-                match self.input[i] {
+                match self.tokenizer.input[i] {
                     b'r' => v.push(b'\r'),
                     b'n' => v.push(b'\n'),
                     b't' => v.push(b'\t'),
@@ -742,7 +724,7 @@ impl Asm {
                     c @ _ => panic!("Invariant broken in Asm::get_string `{:?}`", c),
                 }
             } else {
-                v.push(self.input[i]);
+                v.push(self.tokenizer.input[i]);
             }
             i += 1;
         }
@@ -805,20 +787,11 @@ impl Asm {
             return;
         };
 
-        let tokenizer::Tokenizer { mut input, mut tokens, mut token_info, err, mut filename, .. } = tokenizer::tokenize(include_input, filename);
-        self.err |= err;
-        mem::swap(&mut self.input, &mut input);
-        mem::swap(&mut self.tokens, &mut tokens);
-        mem::swap(&mut self.token_info, &mut token_info);
-        mem::swap(&mut self.filename, &mut filename);
-        let position = self.position;
-        self.position = 0;
+        let mut t = Tokenizer::new(include_input, filename);
+        mem::swap(&mut self.tokenizer, &mut t);
         self.assemble();
-        self.position = position;
-        mem::swap(&mut self.input, &mut input);
-        mem::swap(&mut self.tokens, &mut tokens);
-        mem::swap(&mut self.token_info, &mut token_info);
-        mem::swap(&mut self.filename, &mut filename);
+        self.err |= self.tokenizer.err;
+        mem::swap(&mut self.tokenizer, &mut t);
     }
 
     fn unwrap_ident(&mut self) -> Option<Symbol> {
@@ -1076,7 +1049,7 @@ impl Asm {
                 Token::RParen => return,
                 Token::LParen => {
                     // TODO check for newline
-                    self.position -= 1;
+                    self.backtrack();
                     return;
                 }
                 _ => (),
@@ -1240,7 +1213,7 @@ impl Asm {
         match self.next() {
             Some(Token::RParen) => (),
             Some(Token::LParen) => {
-                self.position -= 1;
+                self.backtrack();
                 eprintln!("Unclosed instruction.");
                 self.err = true;
             }
@@ -1268,14 +1241,14 @@ impl Asm {
                 0
             },
             Some(Token::RParen) | Some(Token::LParen) => {
-                self.position -= 1;
-                eprintln!("Expected register in instruction in file `{}`", self.filename);
+                self.backtrack();
+                eprintln!("Expected register in instruction in file `{}`", self.tokenizer.filename);
                 self.err = true;
                 0
             }
             Some(_) => {
                 // TODO
-                eprintln!("Expected register in instruction in file `{}`", self.filename);
+                eprintln!("Expected register in instruction in file `{}`", self.tokenizer.filename);
                 self.err = true;
                 0
             }
@@ -1294,7 +1267,7 @@ impl Asm {
                 match self.next() {
                     Some(Token::Symbol(s)) if s == symbols::LEN => (),
                     Some(Token::Symbol(_)) => {
-                        self.position -= 1;
+                        self.backtrack();
                         let path = self.unwrap_path();
                         return match self.follow_path(&path) {
                             Some(Unit::Constant(i)) => i as i32 as u32,
@@ -1377,7 +1350,7 @@ impl Asm {
                 match self.next() {
                     Some(Token::RParen) => (),
                     Some(Token::LParen) => {
-                        self.position -= 1;
+                        self.backtrack();
                         eprintln!("Unclosed instruction.");
                         self.err = true;
                     }
@@ -1402,7 +1375,7 @@ impl Asm {
                         0
                     }
                     None => {
-                        eprintln!("Unknown variable in file `{}`.", self.filename);
+                        eprintln!("Unknown variable in file `{}`.", self.tokenizer.filename);
                         self.err = true;
                         0
                     }
@@ -1435,13 +1408,13 @@ impl Asm {
     fn unwrap_offset(&mut self) -> (u32, u32) {
         match self.next() {
             Some(Token::Symbol(_)) => {
-                self.position -= 1;
+                self.backtrack();
                 return (self.unwrap_register(), 0);
             }
             Some(Token::LParen) => (),
             Some(Token::RParen) => {
                 // TODO
-                self.position -= 1;
+                self.backtrack();
                 self.err = true;
                 return (0, 0);
             }
@@ -1534,7 +1507,7 @@ impl Asm {
                 return None;
             },
             Some(Token::RParen) => {
-                self.position -= 1;
+                self.backtrack();
                 eprintln!("Expected label in instruction.");
                 self.err = true;
                 return None;
@@ -1649,19 +1622,14 @@ impl Asm {
     }
 
     fn next(&mut self) -> Option<Token> {
-        if self.position < self.tokens.len() {
-            self.position += 1;
-            Some(self.tokens[self.position - 1])
-        } else {
-            None
-        }
+        self.tokenizer.next()
     }
 
-    fn peek(&self) -> Option<Token> {
-        if self.position < self.tokens.len() {
-            Some(self.tokens[self.position])
-        } else {
-            None
-        }
+    fn peek(&mut self) -> Option<Token> {
+        self.tokenizer.peek()
+    }
+
+    fn backtrack(&mut self) {
+        self.tokenizer.token_position -= 1;
     }
 }
