@@ -129,7 +129,7 @@ impl Tokenizer {
                 }
                 b'"' => self.parse_string(),
                 b'#' => self.parse_literal(),
-                b'0' ..= b'9' | b'+' | b'-' => self.parse_ambiguous(),
+                b'0' ..= b'9' | b'a' ..= b'f' | b'A' ..= b'F' | b'x' | b'o' | b'_' | b'+' | b'-' => self.parse_ambiguous(),
                 _ => self.parse_identifier(self.position - 1, self.lines.len()),
             }
         } else {
@@ -290,7 +290,7 @@ impl Tokenizer {
         while let Some(c) = self._peek() {
             match c {
                 // still ambiguous
-                b'0' ..= b'9' | b'+' | b'-' => (),
+                b'0' ..= b'9' | b'a' ..= b'f' | b'A' ..= b'F' | b'x' | b'o' | b'_' | b'+' | b'-' => (),
                 b'(' | b')' | b'#' | b';' | b'"' | b' ' | b'\t' | b'\r' | b'\n' => break,
                 _ => return self.parse_identifier(start, line),
             }
@@ -318,6 +318,38 @@ impl Tokenizer {
             start += 1;
         }
         // Needed in case the input is just a sign
+        if start == end || self.input[start] == b'_' {
+            return None;
+        }
+
+        let mut decimal = true;
+        let mut binary = false;
+        let mut octal = false;
+        let mut hex = false;
+        if self.input[start] == b'0' && start + 1 != end {
+            match self.input[start+1] {
+                b'b' => {
+                    binary = true;
+                    decimal = false;
+                    start += 2;
+                }
+                b'o' => {
+                    octal = true;
+                    decimal = false;
+                    start += 2;
+                }
+                b'x' => {
+                    hex = true;
+                    decimal = false;
+                    start += 2;
+                }
+                _ => ()
+            }
+        }
+
+        while start < end && self.input[start] == b'_' {
+            start += 1;
+        }
         if start == end {
             return None;
         }
@@ -325,7 +357,26 @@ impl Tokenizer {
         let mut overflow = false;
         while start < end {
             match self.input[start] {
-                c @ b'0' ..= b'9' => {
+                b'_' => (),
+                c @ b'0' | c @ b'1' if binary => {
+                    i = if let Some(j) = i.checked_shl(1) {
+                        j
+                    } else {
+                        overflow = true;
+                        0
+                    };
+                    i |= (c - b'0') as i64;
+                }
+                c @ b'0' ..= b'7' if octal => {
+                    i = if let Some(j) = i.checked_shl(3) {
+                        j
+                    } else {
+                        overflow = true;
+                        0
+                    };
+                    i |= (c - b'0') as i64;
+                }
+                c @ b'0' ..= b'9' if decimal => {
                     i = if let Some(j) = i.checked_mul(10) {
                         j
                     } else {
@@ -338,6 +389,33 @@ impl Tokenizer {
                         overflow = true;
                         0
                     };
+                }
+                c @ b'0' ..= b'9' if hex => {
+                    i = if let Some(j) = i.checked_shl(4) {
+                        j
+                    } else {
+                        overflow = true;
+                        0
+                    };
+                    i |= (c - b'0') as i64;
+                }
+                c @ b'a' ..= b'f' if hex => {
+                    i = if let Some(j) = i.checked_shl(4) {
+                        j
+                    } else {
+                        overflow = true;
+                        0
+                    };
+                    i |= (c - b'a' + 10) as i64;
+                }
+                c @ b'A' ..= b'F' if hex => {
+                    i = if let Some(j) = i.checked_shl(4) {
+                        j
+                    } else {
+                        overflow = true;
+                        0
+                    };
+                    i |= (c - b'A' + 10) as i64;
                 }
                 _ => return None,
             }
@@ -355,5 +433,45 @@ impl Tokenizer {
             i = -i;
         }
         Some(i)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn intp() {
+        assert_eq!(Tokenizer::new(b"123".to_vec(), String::new()).next().unwrap(), Token::Integer(123));
+        assert_eq!(Tokenizer::new(b"-123".to_vec(), String::new()).next().unwrap(), Token::Integer(-123));
+        assert_eq!(Tokenizer::new(b"+123".to_vec(), String::new()).next().unwrap(), Token::Integer(123));
+        assert_eq!(Tokenizer::new(b"0o123".to_vec(), String::new()).next().unwrap(), Token::Integer(0o123));
+        assert_eq!(Tokenizer::new(b"-0o123".to_vec(), String::new()).next().unwrap(), Token::Integer(-0o123));
+        assert_eq!(Tokenizer::new(b"+0o123".to_vec(), String::new()).next().unwrap(), Token::Integer(0o123));
+        assert_eq!(Tokenizer::new(b"0x123".to_vec(), String::new()).next().unwrap(), Token::Integer(0x123));
+        assert_eq!(Tokenizer::new(b"-0x123".to_vec(), String::new()).next().unwrap(), Token::Integer(-0x123));
+        assert_eq!(Tokenizer::new(b"+0x123".to_vec(), String::new()).next().unwrap(), Token::Integer(0x123));
+        assert_eq!(Tokenizer::new(b"0b101".to_vec(), String::new()).next().unwrap(), Token::Integer(0b101));
+        assert_eq!(Tokenizer::new(b"-0b101".to_vec(), String::new()).next().unwrap(), Token::Integer(-0b101));
+        assert_eq!(Tokenizer::new(b"+0b101".to_vec(), String::new()).next().unwrap(), Token::Integer(0b101));
+        assert_eq!(Tokenizer::new(b"0xabc1".to_vec(), String::new()).next().unwrap(), Token::Integer(0xabc1));
+        assert_eq!(Tokenizer::new(b"-0xabc1".to_vec(), String::new()).next().unwrap(), Token::Integer(-0xabc1));
+        assert_eq!(Tokenizer::new(b"+0xabc1".to_vec(), String::new()).next().unwrap(), Token::Integer(0xabc1));
+
+        assert!(!is_int(Tokenizer::new(b"_123".to_vec(), String::new()).next().unwrap()));
+        assert!(!is_int(Tokenizer::new(b"+_123".to_vec(), String::new()).next().unwrap()));
+        assert!(!is_int(Tokenizer::new(b"-_123".to_vec(), String::new()).next().unwrap()));
+        assert_eq!(Tokenizer::new(b"1_2_3".to_vec(), String::new()).next().unwrap(), Token::Integer(123));
+        assert_eq!(Tokenizer::new(b"0000___1_2_3__".to_vec(), String::new()).next().unwrap(), Token::Integer(123));
+        assert_eq!(Tokenizer::new(b"0x00___1_2_3__".to_vec(), String::new()).next().unwrap(), Token::Integer(0x123));
+        assert_eq!(Tokenizer::new(b"0x___1_2_3__".to_vec(), String::new()).next().unwrap(), Token::Integer(0x123));
+        assert!(!is_int(Tokenizer::new(b"0x___".to_vec(), String::new()).next().unwrap()));
+    }
+
+    fn is_int(t: Token) -> bool {
+        match t {
+            Token::Integer(_) => true,
+            _ => false,
+        }
     }
 }
