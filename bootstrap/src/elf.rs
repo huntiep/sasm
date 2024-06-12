@@ -21,7 +21,7 @@ impl Elf {
             eprintln!("Code has exceeded 2MB limit.");
             error = true;
         }
-        if data.len() >= 0x200000) {
+        if data.len() >= 0x200000 {
             eprintln!("Variable data (`defvar`) has exceeded 2MB limit.");
             error = true;
         }
@@ -98,10 +98,10 @@ impl Elf {
             shstrtab.extend_from_slice(b".data\0");
         }
         if elf.rodata.len() > 0 {
-            s_hdr.push(Elf64Shdr::rodata(elf.p_hdr[i].p_filesz, elf.p_hdr[i].p_offset, shstrtab.len()));
+            s_hdr.push(Elf64Shdr::rodata(elf.p_hdr[i].p_filesz, elf.p_hdr[i].p_offset, shstrtab.len() as u32));
             shstrtab.extend_from_slice(b".rodata\0");
         }
-        s_hdr.push(Elf64Shdr::shstrtab(shstrtab.len() as u64, shstrtab_offset, shstrtab.len()));
+        s_hdr.push(Elf64Shdr::shstrtab(shstrtab.len() as u64, shstrtab_offset, shstrtab.len() as u32));
         shstrtab.extend_from_slice(b".shstrtab\0");
 
         let sh_off = shstrtab_offset + shstrtab.len() as u64;
