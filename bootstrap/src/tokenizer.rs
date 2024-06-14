@@ -149,17 +149,42 @@ impl Tokenizer {
         }
     }
 
-    fn idx_in_line(&self, idx: usize) -> usize {
+    pub fn idx_in_line(&self, idx: usize) -> usize {
         for (s, e) in &self.lines {
             if *e > idx {
-                return idx-*s;
+                return idx - *s;
             }
         }
         idx
     }
 
+    pub fn line(&self, idx: usize) -> usize {
+        let mut i = 0;
+        for (_, e) in &self.lines {
+            if *e > idx {
+                return i;
+            }
+            i += 1;
+        }
+        i
+    }
+
+    fn print_err(&mut self, start: usize, line: usize, msg: &str) {
+        let i = self.idx_in_line(start);
+        let mut e = start;
+        while e < self.input.len() && self.input[e] != b'\n' {
+            e += 1;
+        }
+        if e < self.input.len() {
+            e += 1;
+        }
+        let l = String::from_utf8_lossy(&self.input[start..e]);
+        eprintln!("{} at {}:{}:{}.\n{}: {}", msg, self.filename, line+1, i+1, line+1, l);
+        self.err = true;
+    }
+
     fn parse_string(&mut self) -> Option<Token> {
-        let start = self.position;
+        let start = self.position - 1;
         let line = self.lines.len();
 
         while let Some(c) = self._next() {
@@ -167,15 +192,13 @@ impl Tokenizer {
                 match self._next() {
                     Some(b'r') | Some(b'n') | Some(b't') | Some(b'0') | Some(b'\\') | Some(b'"') => (),
                     Some(c) => {
-                        let c = c as char;
-                        let start = self.idx_in_line(self.position - 2);
-                        let end = self.idx_in_line(self.position);
-                        eprintln!("Invalid string escape code `\\{c}` on line {line} at index {start}:{end} in file `{}`.", self.filename);
-                        self.err = true;
-                    },
+                        if c == b'\n' {
+                            self.newline();
+                        }
+                        self.print_err(start, line, &format!("Invalid string escape code `\\{}`", c as char));
+                    }
                     None => {
-                        eprintln!("Unclosed string beginning on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
-                        self.err = true;
+                        self.print_err(start, line, "Unclosed string beginning");
                         return None;
                     },
                 }
@@ -186,10 +209,10 @@ impl Tokenizer {
                 return Some(Token::String(start, self.position - 1));
             }
         }
-        eprintln!("Unclosed string beginning on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
-        self.err = true;
+        self.print_err(start, line, "Unclosed string beginning");
         if line < self.lines.len() {
             self.position = self.lines[line].1;
+            self.lines.truncate(line + 1);
         }
         self.token_info.push(TokenInfo { start: start-1, end: self.position, line: line });
         Some(Token::String(start, self.position - 1))
@@ -200,25 +223,26 @@ impl Tokenizer {
         let line = self.lines.len();
 
         if let Some(c) = self._peek() {
-            if c != b'\'' {
+            if c == b'|' {
+                self.parse_block_comment(start, line);
+                return self.tokenize();
+            } else if c != b'\'' {
                 self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
                 return Some(Token::Pound);
             }
         } else {
-            eprintln!("Unexpected EOF on line {line} at index {} in file `{}`: expected array or character literal.", self.idx_in_line(start), self.filename);
-            self.err = true;
+            self.print_err(start, line, "Expected array or character literal, got EOF");
             return None;
         }
         self._next();
         let ch = match self._next() {
             Some(b'\'') => {
-                eprintln!("Empty character literal beginning on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
-                self.err = true;
+                self.print_err(start, line, "Empty character literal");
+                self.position -= 1;
                 b'\0'
             }
             None => {
-                eprintln!("Unclosed char literal on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
-                self.err = true;
+                self.print_err(start, line, "Unclosed char literal");
                 return None;
             },
             Some(b'\n') => {
@@ -227,8 +251,7 @@ impl Tokenizer {
             }
             Some(b'\\') => match self._next() {
                 None => {
-                    eprintln!("Unclosed char literal on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
-                    self.err = true;
+                    self.print_err(start, line, "Unclosed char literal");
                     return None;
                 }
                 Some(b'\\') => b'\\',
@@ -238,28 +261,21 @@ impl Tokenizer {
                 Some(b't') => b'\t',
                 Some(b'0') => b'\0',
                 Some(c) => {
-                    let c = c as char;
-                    eprintln!("Bad escape sequence `\\{c}` in char literal on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
-                    self.err = true;
+                    if c == b'\n' {
+                        self.newline();
+                    }
+                    self.print_err(start, line, &format!("Bad escape sequence `\\{}` in char literal", c as char));
                     b'\0'
                 }
             }
             Some(c) => c,
         };
 
-        if let Some(c) = self._next() {
-            if c == b'\'' {
-                self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
-                return Some(Token::Char(ch));
-            } else {
-                eprintln!("Unclosed char literal on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
-                self.err = true;
-            }
-        } else {
-            eprintln!("Unclosed char literal on line {line} at index {} in file `{}`.", self.idx_in_line(start), self.filename);
-            self.err = true;
+        if Some(b'\'') != self._next() {
+            self.print_err(start, line, "Unclosed char literal");
         }
-        None
+        self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
+        Some(Token::Char(ch))
     }
 
     fn parse_comment(&mut self) {
@@ -269,6 +285,23 @@ impl Tokenizer {
                 return;
             }
         }
+    }
+
+    fn parse_block_comment(&mut self, start: usize, line: usize) {
+        let mut nesting = 0;
+        while let Some(c) = self._next() {
+            if c == b'|' && Some(b'#') == self._peek() {
+                if nesting == 0 {
+                    self._next();
+                    return;
+                } else {
+                    nesting -= 1;
+                }
+            } else if c == b'#' && Some(b'|') == self._peek() {
+                nesting += 1;
+            }
+        }
+        self.print_err(start, line, "Unclosed block comment");
     }
 
     fn parse_identifier(&mut self, start: usize, line: usize) -> Option<Token> {
@@ -424,8 +457,7 @@ impl Tokenizer {
 
         if overflow {
             let int = unsafe { std::str::from_utf8_unchecked(&self.input[o_start..end]) };
-            eprintln!("Integer `{}` does not fit in i64 on line {line} at index {} in file `{}`.", int, self.idx_in_line(start), self.filename);
-            self.err = true;
+            self.print_err(o_start, line, &format!("Integer `{}` does not fit in i64", int));
             return Some(0);
         }
 

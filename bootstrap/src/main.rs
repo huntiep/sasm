@@ -12,6 +12,11 @@ use std::os::unix::fs::OpenOptionsExt;
 use std::path::PathBuf;
 use std::process::exit;
 
+fn print_usage(prog: &str) {
+    eprintln!("USAGE:\n\t{} <INPUT> [OUTPUT]", prog);
+    eprintln!("\t-d: Include debug info.");
+}
+
 fn main() {
     let mut args = env::args();
     let prog = args.next().unwrap();
@@ -23,24 +28,21 @@ fn main() {
             debug = true;
         } else if arg.starts_with("-") {
             eprintln!("Unknown flag `{}`.", arg);
-            eprintln!("USAGE:\n\t{} <INPUT> [OUTPUT]", prog);
-            eprintln!("\t-d: Include debug info.");
+            print_usage(&prog);
         } else if input_file.is_none() {
             input_file = Some(arg);
         } else if output_file.is_none() {
             output_file = Some(arg);
         } else {
             eprintln!("Too many arguments.");
-            eprintln!("USAGE:\n\t{} <INPUT> [OUTPUT]", prog);
-            eprintln!("\t-d: Include debug info.");
+            print_usage(&prog);
             exit(1);
         }
     }
     let input_file = if let Some(arg) = input_file {
         arg
     } else {
-        eprintln!("USAGE:\n\t{} <INPUT> [OUTPUT]", prog);
-        eprintln!("\t-d: Include debug info.");
+        print_usage(&prog);
         exit(1);
     };
     let output_file = if let Some(arg) = output_file {
@@ -50,7 +52,17 @@ fn main() {
     };
 
     symbols::init();
-    let input = read_file(&input_file).unwrap_or_else(|| exit(1));
+    if (std::path::Path::new(&input_file)).is_dir() {
+            eprintln!("Error: Expected file, got directory: {}", input_file);
+            exit(1);
+    }
+    let input = match read_file(&input_file) {
+        Ok(i) => i,
+        Err(e) => {
+            eprintln!("Error: {}", e);
+            exit(1);
+        }
+    };
     let tokenizer = Tokenizer::new(input, input_file);
     let (program, data, rodata, rewrites) = assemble(tokenizer);
     let e = if debug {
@@ -68,27 +80,24 @@ fn main() {
     e.write(f).unwrap();
 }
 
-fn read_file<P: AsRef<std::path::Path>>(path: P) -> Option<Vec<u8>> {
+fn read_file<P: AsRef<std::path::Path>>(path: P) -> Result<Vec<u8>, String> {
     let path = path.as_ref();
     match fs::read(path) {
-        Ok(v) => Some(v),
-        Err(e) => {
-            match e.kind() {
-                IOError::NotFound => {
-                    eprintln!("No such file `{}`", path.display());
-                }
-                IOError::PermissionDenied => {
-                    eprintln!("Permission denied trying to open file `{}`", path.display());
-                }
-                IOError::OutOfMemory => {
-                    eprintln!("Not enough memory to read file `{}`", path.display());
-                }
-                _ => {
-                    eprintln!("Unknown error reading file `{}`: {}", path.display(), e);
-                }
-            };
-            None
-        }
+        Ok(v) => Ok(v),
+        Err(e) => Err(match e.kind() {
+            IOError::NotFound => {
+                format!("No such file `{}`", path.display())
+            }
+            IOError::PermissionDenied => {
+                format!("Permission denied trying to open file `{}`", path.display())
+            }
+            IOError::OutOfMemory => {
+                format!("Not enough memory to read file `{}`", path.display())
+            }
+            _ => {
+                format!("Unknown error reading file `{}`: {}", path.display(), e)
+            }
+        })
     }
 }
 
@@ -116,12 +125,11 @@ fn assemble(tokenizer: Tokenizer) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, us
         if asm.peek().is_none() {
             break;
         }
-        eprintln!("Unxepected closing parenthesis in file `{}` at line {}.", asm.tokenizer.filename, asm.tokenizer.token_info[asm.tokenizer.token_position].line);
-        asm.err = true;
         asm.tokenizer.token_position += 1;
+        asm.print_err("Unexpected closing parenthesis", "");
     }
-    let (code, data, rodata, rewrites) = asm.finish();
-    if asm.tokenizer.err || asm.err {
+    let (code, data, rodata, rewrites, err) = asm.finish();
+    if err {
         exit(1);
     }
     (code, data, rodata, rewrites)
@@ -170,8 +178,9 @@ impl Module {
         }
     }
 
-    pub fn finish(&mut self) -> Vec<(Symbol, usize, JumpType)> {
+    pub fn finish(&mut self) -> (Vec<(Symbol, usize, JumpType)>, bool) {
         let mut jumps = Vec::new();
+        let mut err = false;
         for (label, i, ty) in &self.jumps {
             let p = if let Some(p) = self.labels.get(label) {
                 *p
@@ -184,21 +193,27 @@ impl Module {
             let imm = (p as isize - i as isize) as i32;
             match ty {
                 JumpType::Branch => {
-                    assert!(imm >= -4096 && imm <= 4095);
+                    if imm < -4096 || imm > 4095 {
+                        eprintln!("Branch to `{}` too far.", get_value(*label));
+                        err = true;
+                    }
                     let imm = imm as u32;
                     let imm1 = (imm & 0x1e) | ((imm >> 11) & 1);
                     let imm2 = ((imm & 0x10_00) >> 6) | ((imm >> 5) & 0x3F);
                     self.code[i/4] |= (imm2 << 25) | (imm1 << 7);
                 }
                 JumpType::Jump => {
-                    assert!(imm >= -1048576 && imm <= 1048575);
+                    if imm < -1048576 || imm > 1048575 {
+                        eprintln!("Jump to `{}` too far.", get_value(*label));
+                        err = true;
+                    }
                     let imm = imm as u32;
                     let imm2 = ((imm & 0x10_00_00) >> 1) | (((imm >> 1) & 0x3_FF) << 9) | (((imm >> 11) & 1) << 8) | ((imm >> 12) & 0xFF);
                     self.code[i/4] |= imm2 << 12;
                 }
             }
         }
-        jumps
+        (jumps, err)
     }
 
 }
@@ -212,9 +227,8 @@ enum JumpType {
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Unit {
     Constant(i64),
-    // position in data, len
+    // position in data, len, constantp
     Bytes(usize, usize, bool),
-    //Bytes(Vec<u8>),
     Module(usize),
 }
 
@@ -230,42 +244,29 @@ impl Asm {
                     Some(Token::Symbol(s)) if s == symbols::MODULE => self.handle_module(),
                     Some(Token::Symbol(s)) if s == symbols::IMPORT => self.handle_import(),
                     Some(Token::Symbol(s)) => self.handle_opcode(s),
-                    Some(Token::RParen) => {
-                        // TODO
-                        eprintln!("Empty expression ending at line {} and index {} in file `{}`.", 0,0,0);
-                        self.err = true;
-                    }
+                    Some(Token::RParen) => self.print_err("Empty expression ending", ""),
                     Some(_) => {
-                        // TODO
-                        eprintln!("Empty expression ending at line {} and index {} in file `{}`.", 0,0,0);
-                        self.err = true;
-                        // TODO: read to closer?
+                        self.print_err("Unexpected value in expression", "");
+                        self.skip_opcode();
                     }
-                    None => {
-                        // TODO
-                        eprintln!("Unexpected parenthesis at line {} and index {} in file `{}`.", 0,0,0);
-                        self.err = true;
-                    }
+                    None => self.print_err("Unexpected opening parenthesis", ""),
                 },
                 Token::RParen => {
                     self.backtrack();
                     return;
                 }
-                _ => {
-                    // TODO
-                    eprintln!("Must be a label or an S-Expression.");
-                    self.err = true;
-                }
+                _ => self.print_err("Expression must be a label or an S-Expression", ""),
             }
         }
     }
 
-    fn finish(&mut self) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>) {
+    fn finish(mut self) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>, bool) {
         let mut code = Vec::new();
         let mut rewrites = Vec::new();
         let mut refs = Vec::new();
         for module in &mut self.modules[1..] {
-            let j = module.finish();
+            let (j, err) = module.finish();
+            self.err |= err;
             for (l, i, ty) in j {
                 refs.push((module.id, vec![l], i + (code.len() * 4), ty));
             }
@@ -285,16 +286,12 @@ impl Asm {
             let p = match self.follow_path(&path) {
                 Some(Unit::Module(m)) => self.modules[m].location,
                 Some(_) => {
-                    eprintln!("Expected module.");
+                    eprintln!("Expected module at path `{}`.", self.path_to_string(&path));
                     self.err = true;
                     continue;
                 }
                 None => {
-                    eprint!("Unknown module/label `");
-                    for p in path {
-                        eprint!("{} ", get_value(p));
-                    }
-                    eprintln!("`.");
+                    eprint!("Unknown module/label `{}`.", self.path_to_string(&path));
                     self.err = true;
                     continue;
                 }
@@ -303,14 +300,20 @@ impl Asm {
             let imm = (p as isize - i as isize) as i32;
             match ty {
                 JumpType::Branch => {
-                    assert!(imm >= -4096 && imm <= 4095);
+                    if imm < -4096 || imm > 4095 {
+                        eprintln!("Branch to `{}` too far.", self.path_to_string(&path));
+                        self.err = true;
+                    }
                     let imm = imm as u32;
                     let imm1 = (imm & 0x1e) | ((imm >> 11) & 1);
                     let imm2 = ((imm & 0x10_00) >> 6) | ((imm >> 5) & 0x3F);
                     code[i/4] |= (imm2 << 25) | (imm1 << 7);
                 }
                 JumpType::Jump => {
-                    assert!(imm >= -1048576 && imm <= 1048575);
+                    if imm < -1048576 || imm > 1048575 {
+                        eprintln!("Jump to `{}` too far.", self.path_to_string(&path));
+                        self.err = true;
+                    }
                     let imm = imm as u32;
                     let imm2 = ((imm & 0x10_00_00) >> 1) | (((imm >> 1) & 0x3_FF) << 9) | (((imm >> 11) & 1) << 8) | ((imm >> 12) & 0xFF);
                     code[i/4] |= imm2 << 12;
@@ -318,109 +321,56 @@ impl Asm {
             }
         }
 
-        // TODO
-        (code, self.data.clone(), self.rodata.clone(), rewrites)
+        let err = self.err || self.tokenizer.err || code.len() == 0;
+        if code.len() == 0 {
+            eprintln!("Error: No instructions found, cannot build executable.");
+        }
+        let Asm { data, rodata, .. } = self;
+        (code, data, rodata, rewrites, err)
     }
 
     fn add_label(&mut self, label: usize) {
-        let m = self.get_mod();
-        if m.labels.contains_key(&label) {
-            eprintln!("Duplicate label `{}`.", get_value(label));
-            self.err = true;
-        } else if m.children.contains_key(&label) {
-            eprintln!("Label `{}` conflicts with module/definition.", get_value(label));
-            self.err = true;
+        if self.get_mod().labels.contains_key(&label) {
+            self.print_err(&format!("Duplicate label `{}`", get_value(label)), "");
+        } else if self.in_scope(label) {
+            self.print_err(&format!("Label `{}` conflicts with module/definition", get_value(label)), "");
         } else {
+            let m = self.get_mod();
             m.labels.insert(label, m.code.len() * 4);
         }
     }
 
     fn handle_import(&mut self) {
         let path = match self.next() {
-            Some(Token::Symbol(s)) => vec![s],
-            Some(Token::LParen) => self.unwrap_path(),
+            Some(Token::Symbol(_)) | Some(Token::LParen) => self.unwrap_path(),
             Some(Token::String(_, _)) => {
-                eprintln!("Import path should consist of identifiers, not strings.");
-                self.err = true;
+                self.print_err("Import path should consist of identifiers, not strings,", "");
                 return self.skip_opcode();
             }
-            Some(Token::RParen) => {
-                eprintln!("Empty import statement.");
-                self.err = true;
-                return;
-            }
+            Some(Token::RParen) => return self.print_err("Empty import statement", ""),
             Some(_) => {
-                eprintln!("Bad arguments in import statement.");
-                self.err = true;
+                self.print_err("Bad argument in import statement", "");
                 return self.skip_opcode();
             }
-            None => {
-                eprintln!("Unexpected EOF in import statement.");
-                self.err = true;
-                return;
-            }
+            None => return self.print_err("Unexpected EOF in import statement", ""),
         };
         match self.next() {
             Some(Token::RParen) => (),
-            Some(Token::LParen) => {
-                self.backtrack();
-                eprintln!("Forgot closing parenthesis in import statement.");
-                eprintln!("\tNote: each import requires its own import statement.");
-                self.err = true;
-            }
-            Some(_) => {
-                eprintln!("Forgot closing parenthesis in import statement.");
-                eprintln!("\tNote: each import requires its own import statement.");
-                self.err = true;
+            Some(t) => {
+                self.print_err("Forgot closing parenthesis in import statement",
+                             "\tNote: each import requires its own import statement.");
+                if t == Token::LParen {
+                    self.backtrack();
+                }
                 self.skip_opcode();
             }
-            None => {
-                eprintln!("Unexpected EOF in import statement.");
-                self.err = true;
-            }
+            None => self.print_err("Unexpected EOF in import statement", ""),
         }
         if path.is_empty() {
-            eprintln!("Empty path in import statement.");
-            self.err = true;
+            self.print_err("Empty path in import statement", "");
             return;
-        }
-
-        if path.len() == 1 {
-            if path[0] == symbols::CARAT || path[0] == symbols::STAR {
-                eprintln!("Invalid path in import statement.");
-                self.err = true;
-                return;
-            }
-            let mut existp = false;
-            let mut m = &self.modules[self.module];
-            while !m.filep {
-                if m.children.contains_key(&path[0]) {
-                    existp = true;
-                }
-                // shitty bc
-                let p = m.parent.unwrap();
-                m = &self.modules[p];
-            }
-            let p = m.parent.unwrap();
-            let mut file_path = self.modules[p].path.clone();
-            file_path.push(get_value(path[0]));
-
-            if file_path.is_dir() {
-                self.import_dir(path[0], file_path, None);
-                return;
-            } else if { file_path.set_extension("sasm"); !file_path.is_file() } {
-                if existp {
-                    eprintln!("Unnecessary import statement");
-                    self.err = true;
-                    return;
-                } else {
-                    eprintln!("File `{}` does not exist.", file_path.display());
-                    self.err = true;
-                    return;
-                }
-            }
-
-            self.import_file(path[0], file_path, None);
+        } else if path.len() == 1 && (path[0] == symbols::CARAT || path[0] == symbols::STAR) {
+            self.print_err("Invalid path in import statement", "");
             return;
         }
 
@@ -433,8 +383,7 @@ impl Asm {
                 let p = if let Some(p) = m.parent {
                     p
                 } else {
-                    eprintln!("Path jumped past root.");
-                    self.err = true;
+                    self.print_err(&format!("Path `{}` jumped past root in import statement", self.path_to_string(&path)), "");
                     return;
                 };
                 m = &self.modules[p];
@@ -447,20 +396,15 @@ impl Asm {
             let p = path[i];
             i += 1;
             if p == symbols::CARAT {
-                eprintln!("Bad path, can only move up (`^`) at beginning of path.");
-                self.err = true;
+                self.print_err(&format!("Invalid path `{}` in import statement", self.path_to_string(&path)), "");
                 return;
-            }
-
-            if p == symbols::STAR && i != path.len() {
-                eprintln!("Bad path, `*` can only appear as the final element.");
-                self.err = true;
+            } else if p == symbols::STAR && i != path.len() {
+                self.print_err(&format!("Invalid path `{}` in import statement", self.path_to_string(&path)), "");
                 return;
             } else if p == symbols::STAR {
                 for (k, (importp, v)) in m.children.clone() {
                     if self.get_mod().children.contains_key(&k) {
-                        eprintln!("`{}` is already defined in this scope.", get_value(k));
-                        self.err = true;
+                        self.print_err(&format!("`{}` is already defined in this scope from import statement", get_value(k)), "");
                     } else if !importp {
                         self.get_mod().children.insert(k, (true, v));
                     }
@@ -471,27 +415,22 @@ impl Asm {
             match m.children.get(&p).copied() {
                 v @ Some((_, Unit::Bytes(_, _, _))) | v @ Some((_, Unit::Constant(_))) => {
                     let (importp, v) = v.unwrap();
-                    // TODO
                     if importp {
-                        eprintln!("Cannot import an import");
-                        self.err = true;
+                        self.print_err("Cannot import an import from import statement", "");
                     } else if i == path.len() {
                         if self.get_mod().children.contains_key(&p) {
-                            eprintln!("`{}` is already defined in this scope.", get_value(p));
-                            self.err = true;
+                            self.print_err(&format!("`{}` is already defined in this scope from import statement", get_value(p)), "");
                         } else {
                             self.get_mod().children.insert(p, (true, v));
                         }
                     } else {
-                        eprintln!("Path resolved to variable/global partway.");
-                        self.err = true;
+                        self.print_err(&format!("Path `{}` resolved to variable/global partway in import statement", self.path_to_string(&path)), "");
                     }
                     return;
                 }
                 Some((importp, Unit::Module(id))) if !importp => if i == path.len() {
                     if self.get_mod().children.contains_key(&p) {
-                        eprintln!("`{}` is already defined in this scope.", get_value(p));
-                        self.err = true;
+                        self.print_err(&format!("`{}` is already defined in this scope in import statement", get_value(p)), "");
                     } else {
                         self.get_mod().children.insert(p, (true, Unit::Module(id)));
                     }
@@ -514,25 +453,28 @@ impl Asm {
                     let mut file_path = self.modules[ptr].path.clone();
                     file_path.push(get_value(p));
                     if file_path.is_dir() {
-                        if let Some(m_id) = self.import_dir(p, file_path, Some(ptr)) {
+                        if let Some(m_id) = self.import_dir(file_path, ptr) {
+                            if i == path.len() {
+                                self.get_mod().children.insert(p, (true, Unit::Module(m_id)));
+                            }
                             m = &self.modules[m_id];
                         } else {
                             self.err = true;
                             return;
                         }
                     } else if { file_path.set_extension("sasm"); !file_path.is_file() } {
-                        // TODO: i = path.len
                         if existp {
-                            eprintln!("Unnecessary import statement");
-                            self.err = true;
+                            self.print_err("Unnecessary import statement", "");
                             return;
                         } else {
-                            eprintln!("File `{}` does not exist.", file_path.display());
-                            self.err = true;
+                            self.print_err(&format!("File `{}` does not exist in import statement", file_path.display()), "");
                             return;
                         }
                     } else {
-                        if let Some(m_id) = self.import_file(p, file_path, Some(ptr)) {
+                        if let Some(m_id) = self.import_file(p, file_path, ptr) {
+                            if i == path.len() {
+                                self.get_mod().children.insert(p, (true, Unit::Module(m_id)));
+                            }
                             m = &self.modules[m_id];
                         } else {
                             self.err = true;
@@ -544,67 +486,59 @@ impl Asm {
         }
     }
 
-    fn import_dir(&mut self, path: Symbol, file_path: PathBuf, parent: Option<usize>) -> Option<usize> {
+    fn import_dir(&mut self, file_path: PathBuf, parent: usize) -> Option<usize> {
         if let Some(id) = self.import_files.get(&file_path).copied() {
-            if parent.is_some() {
-                return Some(id);
-            } else {
-                match self.get_mod().children.get(&path) {
-                    Some((_, Unit::Module(i))) if *i == id => eprintln!("Double import statement"),
-                    Some(_) => {
-                        eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
-                        self.err = true;
-                    }
-                    None => {
-                        self.get_mod().children.insert(path, (true, Unit::Module(id)));
-                        return Some(id);
-                    }
-                }
-                return None;
-            }
+            return Some(id);
         }
 
         let m_id = self.modules.len();
-        if parent.is_none() && self.get_mod().children.contains_key(&path) {
-            eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
-            self.err = true;
-        } else if parent.is_none() {
-            self.get_mod().children.insert(path, (true, Unit::Module(m_id)));
-        }
         self.import_files.insert(file_path.clone(), m_id);
         // TODO: should filep be set?
-        let parent = parent.unwrap_or(self.module);
         let mut module = Module::new(m_id, Some(parent), false);
         module.path = file_path.clone();
         self.modules.push(module);
         let old_id = self.module;
         self.module = m_id;
 
-        let dir = if let Ok(d) = fs::read_dir(&file_path) {
-            d
-        } else {
-            eprintln!("Unable to read directory `{}`", file_path.display());
-            self.err = true;
-            return Some(m_id);
+        let dir = match fs::read_dir(&file_path) {
+            Ok(d) => d,
+            Err(e) => {
+                let e = match e.kind() {
+                    IOError::PermissionDenied => {
+                        format!("Permission denied trying to open directory `{}`", file_path.display())
+                    }
+                    IOError::OutOfMemory => {
+                        format!("Not enough memory to read directory `{}`", file_path.display())
+                    }
+                    _ => {
+                        format!("Unknown error reading directory `{}`: {}", file_path.display(), e)
+                    }
+                };
+                self.print_err("Error executing import", &format!("\t{}", e));
+                return Some(m_id);
+            }
         };
         for f in dir {
-            // TODO
             let f = f.unwrap();
             if f.file_type().unwrap().is_dir() {
                 let f = f.path();
-                let mut p = file_path.clone();
-                p.push(f.file_name().unwrap());
+                let mut fp = file_path.clone();
+                fp.push(f.file_name().unwrap());
                 let path = get_symbol(f.file_stem().unwrap().as_encoded_bytes().to_vec());
-                self.import_dir(path, p, None);
+                if let Some(m) = self.import_dir(fp, m_id) {
+                    self.get_mod().children.insert(path, (true, Unit::Module(m)));
+                }
             } else {
                 let f = f.path();
                 if Some("sasm".as_ref()) != f.extension() {
                     continue;
                 }
-                let mut p = file_path.clone();
-                p.push(f.file_name().unwrap());
+                let mut fp = file_path.clone();
+                fp.push(f.file_name().unwrap());
                 let path = get_symbol(f.file_stem().unwrap().as_encoded_bytes().to_vec());
-                self.import_file(path, p, None);
+                if let Some(m) = self.import_file(path, fp, m_id) {
+                    self.get_mod().children.insert(path, (true, Unit::Module(m)));
+                }
             }
         }
 
@@ -612,48 +546,26 @@ impl Asm {
         Some(m_id)
     }
 
-    fn import_file(&mut self, path: Symbol, file_path: PathBuf, parent: Option<usize>) -> Option<usize> {
+    fn import_file(&mut self, path: Symbol, file_path: PathBuf, parent: usize) -> Option<usize> {
         if let Some(id) = self.import_files.get(&file_path).copied() {
-            if parent.is_some() {
-                return Some(id);
-            } else {
-                match self.get_mod().children.get(&path) {
-                    Some((_, Unit::Module(i))) if *i == id => eprintln!("Double import statement"),
-                    Some(_) => {
-                        eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
-                        self.err = true;
-                    }
-                    None => {
-                        self.get_mod().children.insert(path, (true, Unit::Module(id)));
-                        return Some(id);
-                    }
-                }
-                return None;
-            }
+            return Some(id);
         }
 
-        // shitty bc
         let m_id = self.modules.len();
-        if parent.is_none() && self.get_mod().children.contains_key(&path) {
-            eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(path));
-            self.err = true;
-        } else if parent.is_none() {
-            self.get_mod().children.insert(path, (true, Unit::Module(m_id)));
-        }
         self.import_files.insert(file_path.clone(), m_id);
-        let parent = parent.unwrap_or(self.module);
-        let module = Module::new(m_id, Some(parent), true);
+        let mut module = Module::new(m_id, Some(parent), true);
+        module.labels.insert(path, 0);
         let old_id = self.module;
         self.module = m_id;
         self.modules.push(module);
-        self.add_label(path);
 
-        let include_input = if let Some(i) = read_file(&file_path) {
-            i
-        } else {
-            self.module = self.get_mod().parent.unwrap();
-            self.err = true;
-            return Some(m_id);
+        let include_input = match read_file(&file_path) {
+            Ok(i) => i,
+            Err(e) => {
+                self.print_err("Error executing import", &format!("\t{}", e));
+                self.module = old_id;
+                return Some(m_id);
+            }
         };
 
         let mut t = Tokenizer::new(include_input, file_path.display().to_string());
@@ -670,42 +582,798 @@ impl Asm {
         let ident = match self.next() {
             Some(Token::Symbol(s)) => s,
             Some(Token::LParen) => {
+                self.print_err("Invalid module declaration, expected identifier", "");
                 self.backtrack();
-                eprintln!("Invalid module declaration, expected identifier.");
-                self.err = true;
                 0
             }
-            Some(Token::RParen) | None => {
-                eprintln!("Unfinished module declaration.");
-                self.err = true;
-                return;
-            }
+            Some(Token::RParen) | None => return self.print_err("Unfinished module declaration", ""),
             Some(_) => {
-                eprintln!("Invalid module declaration, expected identifier as module name.");
-                self.err = true;
+                self.print_err("Invalid module declaration, expected identifier", "");
                 0
             }
         };
 
-        // shitty bc
         let m_id = self.modules.len();
-        let module = Module::new(m_id, Some(self.module), false);
+        let mut module = Module::new(m_id, Some(self.module), false);
+        module.labels.insert(ident, 0);
         if self.get_mod().children.contains_key(&ident) {
-            eprintln!("Module `{}` conflicts with existing module/definition in scope", get_value(ident));
-            self.err = true;
+            self.print_err(&format!("Module `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
         } else {
             self.get_mod().children.insert(ident, (false, Unit::Module(m_id)));
         }
         self.module = m_id;
         self.modules.push(module);
-        self.add_label(ident);
         self.assemble();
         if self.next() != Some(Token::RParen) {
-            eprintln!("Unclosed module.");
-            self.err = true;
+            self.print_err(&format!("Unclosed module `{}`", get_value(ident)), "");
         }
 
         self.module = self.get_mod().parent.unwrap();
+    }
+
+    fn handle_include(&mut self) {
+        let filename = match self.next() {
+            Some(Token::String(s, e)) => match String::from_utf8(self.get_string(s, e)) {
+                Ok(s) => s,
+                Err(_) => {
+                    self.print_err("Invalid filename", "");
+                    self.skip_opcode();
+                    return;
+                }
+            },
+            Some(Token::RParen) =>return  self.print_err("Unexpected parenthesis", ""),
+            Some(_) => {
+                self.print_err("`include!` file must be a string", "");
+                self.skip_opcode();
+                return;
+            },
+            None => return self.print_err("Unexpected EOF in `include!`", ""),
+        };
+        match self.next() {
+            Some(Token::RParen) => (),
+            Some(Token::String(_, _)) => {
+                self.print_err("Each file needs its own include statement", "");
+                self.skip_opcode();
+            },
+            Some(_) => {
+                self.print_err("Unexpected expression in include statement", "");
+                self.skip_opcode();
+            }
+            None => self.print_err("Unexpected EOF in `include!`", ""),
+        }
+        let include_input = match read_file(&filename) {
+            Ok(i) => i,
+            Err(e) => return self.print_err("Error executing `include!`", &format!("\t{}", e)),
+        };
+
+        let mut t = Tokenizer::new(include_input, filename);
+        mem::swap(&mut self.tokenizer, &mut t);
+        self.assemble();
+        self.err |= self.tokenizer.err;
+        mem::swap(&mut self.tokenizer, &mut t);
+    }
+
+    fn handle_define(&mut self) {
+        let ident = if let Some(i) = self.unwrap_ident() {
+            i
+        } else {
+            return;
+        };
+
+        match self.next() {
+            Some(Token::Integer(i)) => if self.in_scope(ident) {
+                self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
+            } else {
+                self.get_mod().children.insert(ident, (false, Unit::Constant(i)));
+            },
+            Some(Token::Char(c)) => if self.in_scope(ident) {
+                self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
+            } else {
+                self.get_mod().children.insert(ident, (false, Unit::Constant(c as i64)));
+            },
+            Some(Token::Pound) | Some(Token::String(_, _)) => {
+                self.print_err(&format!("Definition `{}` must be a constant", get_value(ident)),
+                               "\tNOTE: Define is only for build-time constants, did you mean `defcon`/`defvar`?");
+            }
+            Some(Token::RParen) => return self.print_err(&format!("Definition `{}` must have a value", get_value(ident)), ""),
+            Some(_) => self.print_err(&format!("Definition `{}` must be a constant", get_value(ident)), ""),
+            None => return self.print_err(&format!("Unexpected EOF in definition `{}` at end of file", get_value(ident)), ""),
+        }
+
+        if Some(Token::RParen) != self.next() {
+            self.backtrack();
+            let (line, _, _) = self.info();
+            self.print_err("Unclosed definition", "");
+            self.next();
+            if self.same_line(line) {
+                self.skip_opcode();
+            } else {
+                self.backtrack();
+            }
+        }
+    }
+
+    fn handle_defcon_var(&mut self, constant: bool) {
+        let ident = if let Some(i) = self.unwrap_ident() {
+            i
+        } else {
+            return;
+        };
+
+        match self.next() {
+            Some(Token::Integer(i)) => if self.in_scope(ident) {
+                self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
+            } else {
+                let d = if constant {
+                    &mut self.rodata
+                } else {
+                    &mut self.data
+                };
+                while d.len() % 8 != 0 {
+                    d.push(0);
+                }
+                let start = d.len();
+                d.extend_from_slice(&i.to_le_bytes());
+                self.get_mod().children.insert(ident, (false, Unit::Bytes(start, 8, constant)));
+            },
+            Some(Token::Char(c)) => if self.in_scope(ident) {
+                self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
+            } else {
+                let d = if constant {
+                    &mut self.rodata
+                } else {
+                    &mut self.data
+                };
+                while d.len() % 8 != 0 {
+                    d.push(0);
+                }
+                let start = d.len();
+                d.push(c);
+                self.get_mod().children.insert(ident, (false, Unit::Bytes(start, 1, constant)));
+            },
+            Some(Token::Pound) => {
+                let mut v = if let Some(v) = self.unwrap_array() {
+                    v
+                } else {
+                    return;
+                };
+                if v.is_empty() {
+                    let err = self.err;
+                    self.print_err("Definition of empty array literal", "");
+                    self.err = err
+                }
+
+                let len = v.len();
+                let d = if constant {
+                    &mut self.rodata
+                } else {
+                    &mut self.data
+                };
+                while d.len() % 8 != 0 {
+                    d.push(0);
+                }
+                let start = d.len();
+                d.append(&mut v);
+                if self.in_scope(ident) {
+                    self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
+                } else {
+                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, len, constant)));
+                }
+            }
+            Some(Token::String(start, end)) => {
+                let mut s = self.get_string(start, end);
+                if s.is_empty() {
+                    let err = self.err;
+                    self.print_err("Definition of empty string literal", "");
+                    self.err = err
+                }
+
+                let len = s.len();
+                let d = if constant {
+                    &mut self.rodata
+                } else {
+                    &mut self.data
+                };
+                while d.len() % 8 != 0 {
+                    d.push(0);
+                }
+                let start = d.len();
+                d.append(&mut s);
+                if self.in_scope(ident) {
+                    self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
+                } else {
+                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, len, constant)));
+                }
+            }
+            Some(Token::RParen) => return self.print_err(&format!("Definition `{}` must have a value", get_value(ident)), ""),
+            Some(_) => self.print_err(&format!("Definition `{}` must be a constant", get_value(ident)), ""),
+            None => return self.print_err(&format!("Unexpected EOF in definition `{}` at end of file", get_value(ident)), ""),
+        }
+
+        if Some(Token::RParen) != self.next() {
+            self.backtrack();
+            let (line, _, _) = self.info();
+            self.print_err("Unclosed definition", "");
+            self.next();
+            if self.same_line(line) {
+                self.skip_opcode();
+            } else {
+                self.backtrack();
+            }
+        }
+    }
+
+    fn handle_opcode(&mut self, symbol: usize) {
+        const FUNCT3: [u32; 40] = [0, 0, 4, 6, 7, 1, 5, 5, 2, 3, 0, 4, 6,   // r
+                                   0, 0, 4, 6, 7, 1, 5, 5, 2, 3,            // i
+                                   0, 1, 2, 3, 4, 5, 6,                     // i2
+                                   0, 1, 2, 3,                              // s
+                                   0, 1, 4, 5, 6, 7];                       // b
+        let i = if symbol < symbols::ADD {
+            self.print_err(&format!("Cannot use register `{}` as opcode", get_value(symbol)), "");
+            return self.skip_opcode();
+        // R instructions
+        } else if symbol <= symbols::LAST_R {
+            let funct7 = match symbol {
+                symbols::SUB | symbols::SRAI => 0x20,
+                symbols::MUL | symbols::DIV | symbols::REM => 0x01,
+                _ => 0x00,
+            };
+            let rd = self.unwrap_register();
+            let rs1 = self.unwrap_register();
+            let rs2 = self.unwrap_register();
+            (funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0110011
+        // I instructions
+        } else if symbol <= symbols::LAST_I {
+            let rd = self.unwrap_register();
+            let rs1 = self.unwrap_register();
+            let mut imm = self.unwrap_imm();
+            if symbol == symbols::SUBI {
+                imm = -imm;
+            } else if symbol == symbols::SRAI {
+                imm = imm | (0x20 << 5);
+            }
+            if imm >= 2048 || imm < -2048 {
+                self.print_err(&format!("Immediate `{}` out of range [-2048, 2048)", imm), "");
+                imm = 0
+            }
+            ((imm as i32 as u32) << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0010011
+        // I2 instructions
+        } else if symbol <= symbols::LAST_I2 {
+            let rd = self.unwrap_register();
+            let (rs1, mut imm) = self.unwrap_offset();
+            if imm >= 2048 || imm < -2048 {
+                self.print_err(&format!("Offset `{}` out of range [-2048, 2048)", imm), "");
+                imm = 0
+            }
+            ((imm as i32 as u32) << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0000011
+        } else if symbol == symbols::LA {
+            let rd = self.unwrap_register();
+            let path = match self.next() {
+                Some(Token::Symbol(_)) | Some(Token::LParen) => self.unwrap_path(),
+                Some(Token::RParen) => return self.print_err("Expected identifier in instruction", ""),
+                Some(_) => {
+                    self.print_err("Expected path as argument to `la` instruction", "");
+                    return self.skip_opcode();
+                }
+                None => return self.print_err("Unexpected EOF in instruction", ""),
+            };
+            let (p, constant) = match self.follow_path(&path) {
+                Some(Unit::Bytes(p, _, c)) => (p, c),
+                _ => {
+                    self.print_err(&format!("Global `{}` not defined/imported at use", self.path_to_string(&path)), "");
+                    (0, true)
+                },
+            };
+            let i = self.get_mod().code.len();
+            self.get_mod().rewrites.push((i, p, constant));
+            // lui
+            let i = (rd << 7) | 0b0110111;
+            self.get_mod().code.push(i);
+            // addi
+            (rd << 15) | (rd << 7) | 0b0010011
+        // S instructions
+        } else if symbol <= symbols::LAST_S {
+            let (rs1, mut imm) = self.unwrap_offset();
+            if imm >= 2048 || imm < -2048 {
+                self.print_err(&format!("Offset `{}` out of range [-2048, 2048)", imm), "");
+                imm = 0
+            }
+            let rd = self.unwrap_register();
+            (((imm as i32 as u32) >> 5) << 25) | (rd << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (((imm as i32 as u32) & 0b11111) << 7) | 0b0100011
+
+        // B instructions
+        } else if symbol <= symbols::LAST_B {
+            let rs1 = self.unwrap_register();
+            let rs2 = self.unwrap_register();
+            let mut i = (rs2 << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | 0b1100011;
+            if let Some((imm, label)) = self.unwrap_label(true) {
+                // TODO: check range
+                if imm < -4096 || imm > 4095 {
+                    self.print_err(&format!("Branch to `{}` too far", get_value(label)), "");
+                }
+                let imm = imm as u32;
+                let imm1 = (imm & 0x1e) | ((imm >> 11) & 1);
+                let imm2 = ((imm & 0x10_00) >> 6) | ((imm >> 5) & 0x3F);
+                i = (imm2 << 25) | (imm1 << 7) | i;
+            }
+            i
+        // Other instructions
+        } else if symbol == symbols::JAL {
+            let rd = self.unwrap_register();
+            let mut i = (rd << 7) | 0b1101111;
+            if let Some((imm, label)) = self.unwrap_label(false) {
+                if imm < -1048576 || imm > 1048575 {
+                    self.print_err(&format!("Jump to `{}` too far", get_value(label)), "");
+                }
+                let imm = imm as u32;
+                let imm2 = ((imm & 0x10_00_00) >> 1) | (((imm >> 1) & 0x3_FF) << 9) | (((imm >> 11) & 1) << 8) | ((imm >> 12) & 0xFF);
+                i = (imm2 << 12) | i;
+            }
+            i
+        } else if symbol == symbols::JALR {
+            let rd = self.unwrap_register();
+            let (rs, imm) = self.unwrap_offset();
+            ((imm as i32 as u32) << 20) | (rs << 15) | (rd << 7) | 0b1100111
+        } else if symbol == symbols::LUI || symbol == symbols::AUIPC {
+            let rd = self.unwrap_register();
+            let mut imm = self.unwrap_imm();
+            if (imm as u64) > 0xF_FF_FF {
+                self.print_err(&format!("Immediate `{}` out of range [-2048, 2048)", imm), "");
+                imm = 0
+            }
+            ((imm as i32 as u32) << 12) | (rd << 7) | if symbol == symbols::LUI { 0b0110111 } else { 0b0010111 }
+        } else if symbol == symbols::ECALL {
+            0b1110011
+        } else if symbol == symbols::EBREAK {
+            1 << 12 | 0b1110011
+        } else {
+            self.print_err(&format!("Unknown opcode `{}`", get_value(symbol)), "");
+            return self.skip_opcode();
+        };
+        self.get_mod().code.push(i);
+
+        match self.next() {
+            Some(Token::RParen) => (),
+            Some(Token::LParen) => {
+                self.print_err("Unclosed instruction", "");
+                self.backtrack();
+            }
+            Some(_) => {
+                self.print_err("Too many arguments or missing parenthesis in instruction", "");
+                self.skip_opcode();
+            }
+            None => self.print_err("Unclosed instruction at end of file", ""),
+        }
+
+    }
+
+    fn skip_opcode(&mut self) {
+        let (line, _, _) = self.info();
+        while let Some(t) = self.next() {
+            match t {
+                Token::RParen => return,
+                Token::LParen => if !self.same_line(line) {
+                    self.backtrack();
+                    self.print_err("Unclosed expression", "");
+                    return;
+                },
+                _ => (),
+            }
+        }
+        self.print_err("Unclosed expression at end of file", "");
+    }
+
+    fn unwrap_register(&mut self) -> u32 {
+        match self.next() {
+            Some(Token::Symbol(s)) => if s <= symbols::X31 {
+                s as u32 - 1
+            } else {
+                self.print_err(&format!("Expected register in instruction, got identifier `{}`", get_value(s)), "");
+                0
+            },
+            Some(Token::RParen) | Some(Token::LParen) => {
+                self.print_err("Expected register in instruction", "");
+                self.backtrack();
+                0
+            }
+            Some(_) => {
+                self.print_err("Expected register in instruction", "");
+                0
+            }
+            None => {
+                self.print_err("Expected register in instruction, got EOF", "");
+                0
+            }
+        }
+    }
+
+    fn unwrap_imm(&mut self) -> i64 {
+        match self.next() {
+            Some(Token::LParen) => {
+                match self.next() {
+                    Some(Token::Symbol(s)) if s == symbols::LEN => (),
+                    Some(Token::Symbol(_)) => {
+                        self.backtrack();
+                        let path = self.unwrap_path();
+                        return match self.follow_path(&path) {
+                            Some(Unit::Constant(i)) => i,
+                            Some(_) => {
+                                self.print_err(&format!("Variable `{}` must be a constant", self.path_to_string(&path)), "");
+                                0
+                            }
+                            None => {
+                                self.print_err(&format!("Variable `{}` not defined/imported at use", self.path_to_string(&path)), "");
+                                0
+                            }
+                        };
+                    }
+                    Some(Token::RParen) => {
+                        self.print_err("Empty path in expression", "");
+                        return 0;
+                    }
+                    Some(_) => {
+                        self.print_err("Unexpected expression in path", "");
+                        self.skip_opcode();
+                        return 0;
+                    }
+                    None => {
+                        self.print_err("Unexpected EOF in path in expression", "");
+                        return 0;
+                    }
+                }
+                // len
+                let len = match self.next() {
+                    Some(Token::Symbol(_)) | Some(Token::LParen) => {
+                        let path = self.unwrap_path();
+                        match self.follow_path(&path) {
+                            Some(Unit::Bytes(_, l, _)) => l as i64,
+                            Some(_) | None => {
+                                self.print_err(&format!("Global `{}` not defined/imported at use", self.path_to_string(&path)), "");
+                                0
+                            }
+                        }
+                    },
+                    Some(_) => {
+                        // TODO: allow strings/byte arrays?
+                        self.print_err("Expected path as argument in `len` expression", "");
+                        0
+                    }
+                    None => {
+                        self.print_err("Unexpected EOF in `len` expression", "");
+                        0
+                    }
+                };
+
+                match self.next() {
+                    Some(Token::RParen) => (),
+                    Some(Token::LParen) => {
+                        self.backtrack();
+                        self.print_err("Too many arguments or missing parenthesis in `len` expression", "");
+                    }
+                    Some(_) => {
+                        self.print_err("Too many arguments or missing parenthesis in `len` expression", "");
+                        self.skip_opcode();
+                    }
+                    None => self.print_err("Unexpected EOF in `len` expression", ""),
+                }
+                len
+            }
+            Some(Token::Symbol(s)) => {
+                match self.follow_path(&[s]) {
+                    Some(Unit::Constant(i)) => i,
+                    Some(_) => {
+                        self.print_err(&format!("Variable `{}` must be a constant in expression", get_value(s)), "");
+                        0
+                    }
+                    None => {
+                        self.print_err(&format!("Unknown variable `{}` in expression", get_value(s)), "");
+                        0
+                    }
+                }
+            }
+            Some(Token::Char(c)) => c as i64,
+            Some(Token::Integer(i)) => i,
+            Some(Token::RParen) => {
+                self.print_err("Expected immediate in expression", "");
+                self.backtrack();
+                0
+            }
+            Some(_) => {
+                self.print_err("Expected immediate in expression", "");
+                0
+            }
+            None => {
+                self.print_err("Unexpected EOF in expression", "");
+                0
+            }
+        }
+    }
+
+    fn unwrap_offset(&mut self) -> (u32, i64) {
+        match self.next() {
+            Some(Token::Symbol(_)) => {
+                self.backtrack();
+                return (self.unwrap_register(), 0);
+            }
+            Some(Token::LParen) => (),
+            Some(t) => {
+                self.print_err("Expected register/offset in expression", "");
+                if t == Token::RParen {
+                    self.backtrack();
+                }
+                return (0, 0);
+            }
+            None => {
+                self.print_err("Unexpected EOF in expression", "");
+                return (0, 0);
+            }
+        }
+        let neg = match self.next() {
+            Some(Token::Symbol(s)) => if s == symbols::PLUS {
+                false
+            } else if s == symbols::NEG {
+                true
+            } else {
+                self.print_err(&format!("Expected `+`/`-`, got `{}` in expression offset", get_value(s)), "");
+                return (0, 0);
+            },
+            Some(Token::RParen) => {
+                self.print_err("Empty offset in expression", "");
+                return (0, 0);
+            }
+            Some(_) => {
+                self.print_err("Expected `+`/`-` in expression offset", "");
+                self.skip_opcode();
+                return (0, 0);
+            }
+            None => {
+                self.print_err("Unexpected EOF in expression offset", "");
+                return (0, 0);
+            }
+        };
+
+        let (mut imm, reg) = match self.peek() {
+            Some(Token::Symbol(s)) => if s <= symbols::X31 {
+                self.next();
+                (self.unwrap_imm(), s as u32 - 1)
+            } else {
+                (self.unwrap_imm(), self.unwrap_register())
+            },
+            Some(Token::Integer(_)) | Some(Token::LParen) => {
+                (self.unwrap_imm(), self.unwrap_register())
+            }
+            Some(Token::RParen) => {
+                self.print_err("Expected register and immediate in expression offset", "");
+                return (0, 0);
+            }
+            Some(_) => {
+                // TODO: allow chars?
+                self.print_err("Expected register and immediate in expression offset", "");
+                (0, 0)
+            }
+            None => {
+                self.print_err("Unexpected EOF in expression offset", "");
+                return (0, 0);
+            }
+        };
+
+        if self.next() != Some(Token::RParen) {
+            self.backtrack();
+            self.print_err("Expected closing parenthesis in expression offset", "");
+            self.skip_opcode();
+        }
+        if neg {
+            imm = -imm;
+        }
+        (reg, imm)
+    }
+
+    fn unwrap_label(&mut self, branchp: bool) -> Option<(i32, Symbol)> {
+        let sym = match self.next() {
+            Some(Token::Symbol(s)) => s,
+            Some(Token::LParen) => {
+                let path = self.unwrap_path();
+                if path.is_empty() {
+                    self.print_err("Expected non-empty path in instruction", "");
+                    return None;
+                }
+                let p = self.get_mod().code.len() * 4;
+                self.get_mod().refs.push((path, p, if branchp { JumpType::Branch } else { JumpType::Jump }));
+                return None;
+            },
+            Some(Token::RParen) => {
+                self.print_err("Expected label in instruction", "");
+                self.backtrack();
+                return None;
+            },
+            Some(_) => {
+                self.print_err("Expected label in instruction", "");
+                return None;
+            },
+            None => {
+                self.print_err("Expected label in instruction, got EOF", "");
+                return None;
+            }
+        };
+        let p = self.get_mod().code.len() * 4;
+        match self.get_mod().labels.get(&sym) {
+            Some(s) => Some(((*s as isize - p as isize) as i32, sym)),
+            None => {
+                self.get_mod().jumps.push((sym, p, if branchp { JumpType::Branch } else { JumpType::Jump }));
+                None
+            }
+        }
+    }
+
+    fn unwrap_path(&mut self) -> Vec<Symbol> {
+        let mut path = Vec::new();
+        self.backtrack();
+        if let Some(Token::Symbol(s)) = self.next() {
+            path.push(s);
+            return path;
+        }
+
+        loop {
+            match self.next() {
+                Some(Token::RParen) => return path,
+                Some(Token::Symbol(s)) => path.push(s),
+                Some(_) => {
+                    self.print_err("Unexpected token in path", "");
+                    self.skip_opcode();
+                    return Vec::new();
+                }
+                None => {
+                    self.print_err("Unexpected EOF in path", "");
+                    return Vec::new();
+                }
+            }
+        }
+    }
+
+    fn unwrap_ident(&mut self) -> Option<Symbol> {
+        match self.next() {
+            Some(Token::Symbol(s)) => Some(s),
+            Some(Token::RParen) => {
+                self.print_err("Definition must have an identifier and value", "");
+                None
+            }
+            Some(_) => {
+                self.print_err("Expected identifier in definition", "");
+                Some(0)
+            }
+            None => {
+                self.print_err("Unexpected EOF in definition", "");
+                None
+            }
+        }
+    }
+
+    fn unwrap_array(&mut self) -> Option<Vec<u8>> {
+        match self.next() {
+            Some(Token::LParen) => (),
+            Some(Token::RParen) => {
+                self.print_err("Unexpected `#` in definition, definition incomplete", "");
+                return None;
+            }
+            Some(_) => {
+                self.print_err("Unexpected `#` in definition", "");
+                self.skip_opcode();
+                return None;
+            }
+            None => {
+                self.print_err("Unexpected `#` at end of file", "");
+                return None;
+            }
+        }
+        let mut v = Vec::new();
+        loop {
+            match self.next() {
+                Some(Token::RParen) => break,
+                Some(Token::Integer(i)) => {
+                    if i < 0 || i >= 256 {
+                        self.print_err(&format!("Array literals must consist of u8 integers, `{}` is out of range", i), "");
+                    }
+                    v.push(i as u8);
+                }
+                Some(Token::Symbol(_)) => self.print_err("Array literals must consist of u8 integers, cannot use variables", ""),
+                // TODO: maybe allow this?
+                Some(Token::Char(_)) => self.print_err("Array literals must consist of u8 integers", ""),
+                Some(_) => self.print_err("Array literals must consist of u8 integers", ""),
+                None => {
+                    self.print_err("Unexpected EOF in array literal", "");
+                    return None;
+                }
+            }
+        }
+        Some(v)
+    }
+
+    fn follow_path(&mut self, path: &[Symbol]) -> Option<Unit> {
+        if path.len() == 1 && (path[0] == symbols::CARAT || path[0] == symbols::STAR) {
+            self.print_err("Path cannot consist of just `^`/`*`", "");
+            return None;
+        }
+        let mut m = &self.modules[self.module];
+        let mut i = 0;
+        while i < path.len() {
+            let p = path[i];
+            if p == symbols::CARAT {
+                i += 1;
+                let p = if let Some(p) = m.parent {
+                    p
+                } else {
+                    self.print_err("Path jumped past root in expression", "");
+                    return None;
+                };
+                m = &self.modules[p];
+            } else {
+                break;
+            }
+        }
+
+        while i < path.len() {
+            let p = path[i];
+            i += 1;
+            if p == symbols::CARAT {
+                self.print_err("Bad path, can only move up (`^`) at beginning of path in expression", "");
+                return None;
+            } else if p == symbols::STAR {
+                self.print_err("Bad path, only import statements can use `*` in expression", "");
+                return None;
+            }
+
+            match m.children.get(&p) {
+                v @ Some((_, Unit::Bytes(_, _, _))) | v @ Some((_, Unit::Constant(_))) => {
+                    if i == path.len() {
+                        return Some(v.unwrap().1);
+                    } else {
+                        return None;
+                    }
+                }
+                Some((_, Unit::Module(id))) => m = &self.modules[*id],
+                None => {
+                    if m.filep {
+                        self.err = true;
+                        return None;
+                    } else {
+                        let p = m.parent.unwrap();
+                        m = &self.modules[p];
+                        i -= 1;
+                    }
+                }
+            }
+        }
+        Some(Unit::Module(m.id))
+    }
+
+    fn in_scope(&self, ident: Symbol) -> bool {
+        let mut m = &self.modules[self.module];
+        loop {
+            if m.children.get(&ident).is_some() {
+                return true;
+            } else if m.filep {
+                return false;
+            } else {
+                // shitty bc
+                let p = m.parent.unwrap();
+                m = &self.modules[p];
+            }
+        }
+    }
+
+    fn path_to_string(&self, path: &[Symbol]) -> String {
+        if path.len() == 1 {
+            return get_value(path[0]);
+        }
+        let mut out = String::from('(');
+        for p in path {
+            out.push_str(&get_value(*p));
+            out.push(' ');
+        }
+        out.pop();
+        out.push(')');
+        out
     }
 
     fn get_string(&mut self, start: usize, end: usize) -> Vec<u8> {
@@ -731,894 +1399,57 @@ impl Asm {
         v
     }
 
-    fn handle_include(&mut self) {
-        let filename = match self.next() {
-            Some(Token::String(s, e)) => match String::from_utf8(self.get_string(s, e)) {
-                Ok(s) => s,
-                Err(_) => {
-                    // TODO
-                    eprintln!("Invalid string at line {} and index {} in file `{}`.", 0,0,0);
-                    self.err = true;
-                    self.skip_opcode();
-                    return;
-                }
-            },
-            Some(Token::RParen) => {
-                // TODO
-                eprintln!("Unexpected parenthesis at line {} and index {} in file `{}`.", 0,0,0);
-                self.err = true;
-                return;
-            },
-            Some(_) => {
-                // TODO
-                eprintln!("include! file must be a string at line {} and index {} in file `{}`.", 0,0,0);
-                self.err = true;
-                self.skip_opcode();
-                return;
-            },
-            None => {
-                // TODO
-                eprintln!("Unexpected parenthesis at line {} and index {} in file `{}`.", 0,0,0);
-                self.err = true;
-                return;
-            }
-        };
-        match self.next() {
-            Some(Token::RParen) => (),
-            Some(Token::String(_, _)) => {
-                eprintln!("Each file needs its own include statement at line {} and index {} in file `{}`.", 0,0,0);
-                self.err = true;
-                self.skip_opcode();
-            },
-            Some(_) => {
-                eprintln!("Unexpected expression in include statement at line {} and index {} in file `{}`.", 0,0,0);
-                self.err = true;
-                self.skip_opcode();
-            }
-            None => {
-                eprintln!("Unexpected EOF at line {} and index {} in file `{}`.", 0,0,0);
-                self.err = true;
-            }
-        }
-        let include_input = if let Some(i) = read_file(&filename) {
-            i
+    fn print_err(&mut self, msg: &str, note: &str) {
+        let (line, i, filename) = self.info();
+        let (s, mut e) = if self.tokenizer.lines.is_empty() {
+            (0, None)
+        } else if line >= self.tokenizer.lines.len() {
+            (self.tokenizer.lines[line-1].1, None)
         } else {
-            self.err = true;
-            return;
+            let (s, e) = self.tokenizer.lines[line];
+            (s, Some(e))
         };
 
-        let mut t = Tokenizer::new(include_input, filename);
-        mem::swap(&mut self.tokenizer, &mut t);
-        self.assemble();
-        self.err |= self.tokenizer.err;
-        mem::swap(&mut self.tokenizer, &mut t);
-    }
-
-    fn unwrap_ident(&mut self) -> Option<Symbol> {
-        match self.next() {
-            Some(Token::Symbol(s)) => Some(s),
-            Some(Token::RParen) => {
-                // TODO
-                eprintln!("Definition must have an identifier and value.");
-                self.err = true;
-                None
+        if e.is_none() {
+            let mut i = s;
+            while i < self.tokenizer.input.len() && self.tokenizer.input[i] != b'\n' {
+                i += 1;
             }
-            Some(_) => {
-                // TODO
-                eprintln!("Expected identifier.");
-                self.err = true;
-                Some(0)
+            if i < self.tokenizer.input.len() {
+                i += 1;
             }
-            None => {
-                // TODO
-                eprintln!("Unexpected EOF.");
-                self.err = true;
-                None
-            }
+            e = Some(i);
         }
-    }
-
-    fn unwrap_array(&mut self) -> Option<Vec<u8>> {
-        match self.next() {
-            Some(Token::LParen) => (),
-            Some(Token::RParen) => {
-                eprintln!("Unexepected `#` in definition, definition incomplete.");
-                self.err = true;
-                return None;
-            }
-            Some(_) => {
-                eprintln!("Unexepected `#` in definition.");
-                self.err = true;
-                self.skip_opcode();
-                return None;
-            }
-            None => {
-                eprintln!("Unexepected `#` at end of file.");
-                self.err = true;
-                return None;
-            }
-        }
-        let mut v = Vec::new();
-        loop {
-            match self.next() {
-                Some(Token::RParen) => break,
-                Some(Token::Integer(i)) => {
-                    if i < 0 || i >= 256 {
-                        eprintln!("Array literals must consist of u8 integers, `{}` is out of range.", i);
-                        self.err = true;
-                    }
-                    v.push(i as u8);
-                }
-                Some(Token::Symbol(_)) => {
-                    eprintln!("Array literals must consist of u8 integers, cannot use variables.");
-                    self.err = true;
-                }
-                Some(Token::Char(_)) => {
-                    eprintln!("Array literals must consist of u8 integers.");
-                    self.err = true;
-                }
-                Some(_) => {
-                    eprintln!("Array literals must consist of u8 integers.");
-                    self.err = true;
-                }
-                None => {
-                    eprintln!("Unexepected EOF in array literal.");
-                    self.err = true;
-                    return None;
-                }
-            }
-        }
-        Some(v)
-    }
-
-    fn handle_define(&mut self) {
-        let ident = if let Some(i) = self.unwrap_ident() {
-            i
+        if note.is_empty() {
+            eprintln!("{} at {}:{}:{}.\n{}: {}", msg, filename, line+1, i+1, line+1, String::from_utf8_lossy(&self.tokenizer.input[s..e.unwrap()]));
         } else {
-            return;
-        };
-
-        // TODO
-        match self.next() {
-            // retarded match behaviour
-            Some(Token::Integer(i)) => if self.get_mod().children.contains_key(&ident) {
-                eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
-                self.err = true;
-            } else {
-                self.get_mod().children.insert(ident, (false, Unit::Constant(i)));
-            },
-            Some(Token::Char(c)) => if self.get_mod().children.contains_key(&ident) {
-                eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
-                self.err = true;
-            } else {
-                self.get_mod().children.insert(ident, (false, Unit::Constant(c as i64)));
-            },
-            Some(Token::Pound) | Some(Token::String(_, _)) => {
-                eprintln!("Define is only for build-time constants, did you mean `defcon`/`defvar`?");
-                self.err = true;
-            }
-            Some(Token::RParen) => {
-                // TODO
-                eprintln!("Definition must have a value.");
-                self.err = true;
-                return;
-            }
-            Some(_) => {
-                // TODO
-                eprintln!("Define must be a constant.");
-                self.err = true;
-            }
-            None => {
-                // TODO
-                eprintln!("Unexpected EOF.");
-                self.err = true;
-                return;
-            }
+            eprintln!("{} at {}:{}:{}.\n{}\n{}: {}", msg, filename, line+1, i+1, note, line+1, String::from_utf8_lossy(&self.tokenizer.input[s..e.unwrap()]));
         }
 
-        if Some(Token::RParen) != self.next() {
-            eprintln!("Missing closing parenthesis.");
-            self.err = true;
-        }
+        self.err = true;
     }
 
-    fn handle_defcon_var(&mut self, constant: bool) {
-        let ident = if let Some(i) = self.unwrap_ident() {
-            i
+    fn info(&self) -> (usize, usize, String) {
+        let t = self.tokenizer.token_info[self.tokenizer.token_position-1];
+        /*
+        let s = if self.tokenizer.lines.is_empty() {
+            0
+        } else if t.line >= self.tokenizer.lines.len() {
+            self.tokenizer.lines[t.line-1].1
         } else {
-            return;
+            self.tokenizer.lines[t.line].0
         };
+        */
+        (t.line, self.tokenizer.idx_in_line(t.start), self.tokenizer.filename.clone())
+        //(t.line, t.start - s, self.tokenizer.filename.clone())
+    }
 
-        match self.next() {
-            Some(Token::Integer(i)) => if self.get_mod().children.contains_key(&ident) {
-                eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
-                self.err = true;
-            } else {
-                let d = if constant {
-                    &mut self.rodata
-                } else {
-                    &mut self.data
-                };
-                while d.len() % 8 != 0 {
-                    d.push(0);
-                }
-                let start = d.len();
-                d.extend_from_slice(&i.to_le_bytes());
-                self.get_mod().children.insert(ident, (false, Unit::Bytes(start, 8, constant)));
-            },
-            Some(Token::Char(c)) => if self.get_mod().children.contains_key(&ident) {
-                eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
-                self.err = true;
-            } else {
-                let d = if constant {
-                    &mut self.rodata
-                } else {
-                    &mut self.data
-                };
-                while d.len() % 8 != 0 {
-                    d.push(0);
-                }
-                let start = d.len();
-                d.push(c);
-                self.get_mod().children.insert(ident, (false, Unit::Bytes(start, 1, constant)));
-            },
-            Some(Token::Pound) => {
-                let mut v = if let Some(v) = self.unwrap_array() {
-                    v
-                } else {
-                    return;
-                };
-                if v.is_empty() {
-                    eprintln!("Definition of empty array literal.");
-                }
-
-                let len = v.len();
-                let d = if constant {
-                    &mut self.rodata
-                } else {
-                    &mut self.data
-                };
-                while d.len() % 8 != 0 {
-                    d.push(0);
-                }
-                let start = d.len();
-                d.append(&mut v);
-                if self.get_mod().children.contains_key(&ident) {
-                    eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
-                    self.err = true;
-                } else {
-                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, len, constant)));
-                }
-            }
-            Some(Token::String(start, end)) => {
-                let mut s = self.get_string(start, end);
-                if s.is_empty() {
-                    eprintln!("Definition of empty string literal.");
-                }
-
-                let len = s.len();
-                let d = if constant {
-                    &mut self.rodata
-                } else {
-                    &mut self.data
-                };
-                while d.len() % 8 != 0 {
-                    d.push(0);
-                }
-                let start = d.len();
-                d.append(&mut s);
-                if self.get_mod().children.contains_key(&ident) {
-                    eprintln!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident));
-                    self.err = true;
-                } else {
-                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, len, constant)));
-                }
-            }
-            Some(Token::RParen) => {
-                // TODO
-                eprintln!("Definition must have a value.");
-                self.err = true;
-                return;
-            }
-            Some(_) => {
-                // TODO
-                eprintln!("Define must be a constant.");
-                self.err = true;
-            }
-            None => {
-                // TODO
-                eprintln!("Unexpected EOF.");
-                self.err = true;
-                return;
-            }
-        }
-
-        if Some(Token::RParen) != self.next() {
-            eprintln!("Missing closing parenthesis.");
-            self.err = true;
-        }
+    fn same_line(&self, start: usize) -> bool {
+        self.tokenizer.token_info[self.tokenizer.token_position-1].line == self.tokenizer.token_info[start].line
     }
 
     fn get_mod(&mut self) -> &mut Module {
         &mut self.modules[self.module]
-    }
-
-    fn skip_opcode(&mut self) {
-        while let Some(t) = self.next() {
-            match t {
-                Token::RParen => return,
-                Token::LParen => {
-                    // TODO check for newline
-                    self.backtrack();
-                    return;
-                }
-                _ => (),
-            }
-        }
-        // TODO
-        eprintln!("Unclosed opcode.");
-        self.err = true;
-    }
-
-    fn handle_opcode(&mut self, symbol: usize) {
-        const FUNCT3: [u32; 40] = [0, 0, 4, 6, 7, 1, 5, 5, 2, 3, 0, 4, 6,   // r
-                                   0, 0, 4, 6, 7, 1, 5, 5, 2, 3,            // i
-                                   0, 1, 2, 3, 4, 5, 6,                     // i2
-                                   0, 1, 2, 3,                              // s
-                                   0, 1, 4, 5, 6, 7];                       // b
-        let i = if symbol < symbols::ADD {
-            // TODO
-            eprintln!("Cannot use register as opcode");
-            self.err = true;
-            return self.skip_opcode();
-        // R instructions
-        } else if symbol <= symbols::LAST_R {
-            let funct7 = match symbol {
-                symbols::SUB | symbols::SRAI => 0x20,
-                symbols::MUL | symbols::DIV | symbols::REM => 0x01,
-                _ => 0x00,
-            };
-            let rd = self.unwrap_register();
-            let rs1 = self.unwrap_register();
-            let rs2 = self.unwrap_register();
-            (funct7 << 25) | (rs2 << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0110011
-        // I instructions
-        } else if symbol <= symbols::LAST_I {
-            let rd = self.unwrap_register();
-            let rs1 = self.unwrap_register();
-            let mut imm = self.unwrap_imm();
-            if symbol == symbols::SUBI {
-                imm = (-(imm as i32)) as u32;
-            } else if symbol == symbols::SRAI {
-                imm = imm | (0x20 << 5);
-            }
-            if (imm as i32) >= 2048 || (imm as i32) < -2048 {
-                eprintln!("Immediate `{}` out of range [-2048, 2048)", imm as i32);
-                self.err = true;
-                imm = 0
-            }
-            (imm << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0010011
-        // I2 instructions
-        } else if symbol <= symbols::LAST_I2 {
-            let rd = self.unwrap_register();
-            let (rs1, mut imm) = self.unwrap_offset();
-            if (imm as i32) >= 2048 || (imm as i32) < -2048 {
-                eprintln!("Offset `{}` out of range [-2048, 2048)", imm as i32);
-                self.err = true;
-                imm = 0
-            }
-            (imm << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0000011
-        } else if symbol == symbols::LA {
-            let rd = self.unwrap_register();
-            // TODO: lookup global/rewrite
-            let path = match self.next() {
-                Some(Token::Symbol(s)) => vec![s],
-                Some(Token::LParen) => self.unwrap_path(),
-                Some(Token::RParen) => {
-                    eprintln!("Expected identifier in instruction.");
-                    self.err = true;
-                    return;
-                },
-                Some(_) => {
-                    eprintln!("Unexpected identifier in instruction.");
-                    self.err = true;
-                    return self.skip_opcode();
-                }
-                None => {
-                    eprintln!("Unexpected EOF in instruction.");
-                    self.err = true;
-                    return;
-                }
-            };
-            let (p, constant) = match self.follow_path(&path) {
-                Some(Unit::Bytes(p, _, c)) => (p, c),
-                Some(_) => {
-                    eprintln!("Global not defined/imported at use.");
-                    self.err = true;
-                    (0, true)
-                },
-                None => {
-                    eprintln!("Global not defined/imported at use.");
-                    self.err = true;
-                    (0, true)
-                },
-            };
-            let i = self.get_mod().code.len();
-            self.get_mod().rewrites.push((i, p, constant));
-            // lui
-            let i = (rd << 7) | 0b0110111;
-            self.get_mod().code.push(i);
-            // addi
-            (rd << 15) | (rd << 7) | 0b0010011
-        // S instructions
-        } else if symbol <= symbols::LAST_S {
-            let (rs1, mut imm) = self.unwrap_offset();
-            if (imm as i32) >= 2048 || (imm as i32) < -2048 {
-                eprintln!("Offset `{}` out of range [-2048, 2048)", imm as i32);
-                self.err = true;
-                imm = 0
-            }
-            let rd = self.unwrap_register();
-            ((imm >> 5) << 25) | (rd << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | ((imm & 0b11111) << 7) | 0b0100011
-
-        // B instructions
-        } else if symbol <= symbols::LAST_B {
-            let rs1 = self.unwrap_register();
-            let rs2 = self.unwrap_register();
-            let mut i = (rs2 << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | 0b1100011;
-            if let Some(imm) = self.unwrap_label(true) {
-                assert!(imm >= -4096 && imm <= 4095);
-                let imm = imm as u32;
-                let imm1 = (imm & 0x1e) | ((imm >> 11) & 1);
-                let imm2 = ((imm & 0x10_00) >> 6) | ((imm >> 5) & 0x3F);
-                i = (imm2 << 25) | (imm1 << 7) | i;
-            }
-            i
-        // Other instructions
-        } else if symbol == symbols::JAL {
-            let rd = self.unwrap_register();
-            let mut i = (rd << 7) | 0b1101111;
-            if let Some(imm) = self.unwrap_label(false) {
-                assert!(imm >= -1048576 && imm <= 1048575);
-                let imm = imm as u32;
-                let imm2 = ((imm & 0x10_00_00) >> 1) | (((imm >> 1) & 0x3_FF) << 9) | (((imm >> 11) & 1) << 8) | ((imm >> 12) & 0xFF);
-                i = (imm2 << 12) | i;
-            }
-            i
-        } else if symbol == symbols::JALR {
-            let rd = self.unwrap_register();
-            let (rs, imm) = self.unwrap_offset();
-            (imm << 20) | (rs << 15) | (rd << 7) | 0b1100111
-        } else if symbol == symbols::LUI || symbol == symbols::AUIPC {
-            let rd = self.unwrap_register();
-            let mut imm = self.unwrap_imm();
-            if imm > 0xF_FF_FF {
-                eprintln!("Immediate `{}` out of range [-2048, 2048)", imm as i32);
-                self.err = true;
-                imm = 0
-            }
-            (imm << 12) | (rd << 7) | if symbol == symbols::LUI { 0b0110111 } else { 0b0010111 }
-        } else if symbol == symbols::ECALL {
-            0b1110011
-        } else if symbol == symbols::EBREAK {
-            1 << 12 | 0b1110011
-        } else {
-            // TODO
-            eprintln!("Unknown opcode");
-            self.err = true;
-            return self.skip_opcode();
-        };
-        self.get_mod().code.push(i);
-
-        match self.next() {
-            Some(Token::RParen) => (),
-            Some(Token::LParen) => {
-                self.backtrack();
-                eprintln!("Unclosed instruction.");
-                self.err = true;
-            }
-            Some(_) => {
-                eprintln!("Too many arguments or missing parenthesis in instruction.");
-                self.err = true;
-                self.skip_opcode();
-            }
-            None => {
-                eprintln!("Unclosed instruction at end of file.");
-                self.err = true;
-            }
-        }
-
-    }
-
-    fn unwrap_register(&mut self) -> u32 {
-        match self.next() {
-            Some(Token::Symbol(s)) => if s <= symbols::X31 {
-                s as u32 - 1
-            } else {
-                // TODO
-                eprintln!("Expected register in instruction, got identifier `{}`", get_value(s));
-                self.err = true;
-                0
-            },
-            Some(Token::RParen) | Some(Token::LParen) => {
-                self.backtrack();
-                eprintln!("Expected register in instruction in file `{}`", self.tokenizer.filename);
-                self.err = true;
-                0
-            }
-            Some(_) => {
-                // TODO
-                eprintln!("Expected register in instruction in file `{}`", self.tokenizer.filename);
-                self.err = true;
-                0
-            }
-            None => {
-                // TODO
-                eprintln!("Missing register in instruction");
-                self.err = true;
-                0
-            }
-        }
-    }
-
-    fn unwrap_imm(&mut self) -> u32 {
-        match self.next() {
-            Some(Token::LParen) => {
-                match self.next() {
-                    Some(Token::Symbol(s)) if s == symbols::LEN => (),
-                    Some(Token::Symbol(_)) => {
-                        self.backtrack();
-                        let path = self.unwrap_path();
-                        return match self.follow_path(&path) {
-                            Some(Unit::Constant(i)) => i as i32 as u32,
-                            Some(_) => {
-                                eprintln!("Variable must be a constant.");
-                                self.err = true;
-                                0
-                            }
-                            None => {
-                                eprintln!("Global value has not been defined.");
-                                self.err = true;
-                                0
-                            }
-                        };
-                    }
-                    Some(Token::RParen) => {
-                        eprintln!("Expected path.");
-                        self.err = true;
-                        return 0;
-                    }
-                    Some(_) => {
-                        // TODO
-                        eprintln!("Expected path.");
-                        self.err = true;
-                        return 0;
-                    }
-                    None => {
-                        // TODO
-                        eprintln!("Unexpected EOF.");
-                        self.err = true;
-                        return 0;
-                    }
-                }
-                // len
-                let len = match self.next() {
-                    Some(Token::Symbol(s)) => {
-                        match self.follow_path(&[s]) {
-                            Some(Unit::Bytes(_, l, _)) => l as u32,
-                            Some(_) => {
-                                eprintln!("Global value `{}` has not been defined.", get_value(s));
-                                self.err = true;
-                                0
-                            }
-                            None => {
-                                eprintln!("Global value `{}` has not been defined.", get_value(s));
-                                self.err = true;
-                                0
-                            }
-                        }
-                    },
-                    Some(Token::LParen) => {
-                        let path = self.unwrap_path();
-                        match self.follow_path(&path) {
-                            Some(Unit::Bytes(_, l, _)) => l as u32,
-                            Some(_) => {
-                                eprintln!("Global value has not been defined.");
-                                self.err = true;
-                                0
-                            }
-                            None => {
-                                eprintln!("Global value has not been defined.");
-                                self.err = true;
-                                0
-                            }
-                        }
-                    }
-                    Some(_) => {
-                        // TODO
-                        self.err = true;
-                        0
-                    }
-                    None => {
-                        // TODO
-                        eprintln!("Unexpected EOF.");
-                        self.err = true;
-                        0
-                    }
-                };
-
-                match self.next() {
-                    Some(Token::RParen) => (),
-                    Some(Token::LParen) => {
-                        self.backtrack();
-                        eprintln!("Unclosed instruction.");
-                        self.err = true;
-                    }
-                    Some(_) => {
-                        eprintln!("Too many arguments or missing parenthesis in instruction.");
-                        self.err = true;
-                        self.skip_opcode();
-                    }
-                    None => {
-                        eprintln!("Unclosed instruction at end of file.");
-                        self.err = true;
-                    }
-                }
-                len
-            }
-            Some(Token::Symbol(s)) => {
-                match self.follow_path(&[s]) {
-                    Some(Unit::Constant(i)) => i as i32 as u32,
-                    Some(_) => {
-                        eprintln!("Variable must be a constant.");
-                        self.err = true;
-                        0
-                    }
-                    None => {
-                        eprintln!("Unknown variable in file `{}`.", self.tokenizer.filename);
-                        self.err = true;
-                        0
-                    }
-                }
-            }
-            Some(Token::Char(c)) => c as u32,
-            Some(Token::Integer(i)) => {
-                // TODO
-                i as i32 as u32
-            }
-            Some(Token::RParen) => {
-                // TODO
-                eprintln!("Expected immediate argument in instruction.");
-                self.err = true;
-                0
-            }
-            Some(_) => {
-                // TODO
-                self.err = true;
-                0
-            }
-            None => {
-                // TODO
-                self.err = true;
-                0
-            }
-        }
-    }
-
-    fn unwrap_offset(&mut self) -> (u32, u32) {
-        match self.next() {
-            Some(Token::Symbol(_)) => {
-                self.backtrack();
-                return (self.unwrap_register(), 0);
-            }
-            Some(Token::LParen) => (),
-            Some(Token::RParen) => {
-                // TODO
-                self.backtrack();
-                self.err = true;
-                return (0, 0);
-            }
-            Some(_) => {
-                // TODO
-                self.err = true;
-                return (0, 0);
-            }
-            None => {
-                // TODO
-                self.err = true;
-                return (0, 0);
-            }
-        }
-        let neg = match self.next() {
-            Some(Token::Symbol(s)) => if s == symbols::PLUS {
-                false
-            } else if s == symbols::NEG {
-                true
-            } else {
-                // TODO
-                self.err = true;
-                return (0, 0);
-            },
-            Some(Token::RParen) => {
-                // TODO
-                self.err = true;
-                return (0, 0);
-            }
-            Some(_) => {
-                // TODO
-                self.err = true;
-                self.skip_opcode();
-                return (0, 0);
-            }
-            None => {
-                // TODO
-                self.err = true;
-                return (0, 0);
-            }
-        };
-
-        let (mut imm, reg) = match self.peek() {
-            Some(Token::Symbol(s)) => if s <= symbols::X31 {
-                self.next();
-                (self.unwrap_imm(), s as u32 - 1)
-            } else {
-                (self.unwrap_imm(), self.unwrap_register())
-            },
-            Some(Token::Integer(_)) | Some(Token::LParen) => {
-                (self.unwrap_imm(), self.unwrap_register())
-            }
-            Some(Token::RParen) => {
-                // TODO
-                self.err = true;
-                return (0, 0);
-            }
-            Some(_) => {
-                // TODO
-                self.err = true;
-                (0, 0)
-            }
-            None => {
-                // TODO
-                self.err = true;
-                return (0, 0);
-            }
-        };
-
-        if self.next() != Some(Token::RParen) {
-            self.err = true;
-        }
-        if neg {
-            imm = -(imm as i32) as u32;
-        }
-        (reg, imm)
-    }
-
-    fn unwrap_label(&mut self, branchp: bool) -> Option<i32> {
-        let s = match self.next() {
-            Some(Token::Symbol(s)) => s,
-            // TODO
-            Some(Token::LParen) => {
-                let path = self.unwrap_path();
-                if path.is_empty() {
-                    return None;
-                }
-                let p = self.get_mod().code.len() * 4;
-                self.get_mod().refs.push((path, p, if branchp { JumpType::Branch } else { JumpType::Jump }));
-                return None;
-            },
-            Some(Token::RParen) => {
-                self.backtrack();
-                eprintln!("Expected label in instruction.");
-                self.err = true;
-                return None;
-            },
-            Some(_) => {
-                eprintln!("Expected label in instruction.");
-                self.err = true;
-                return None;
-            },
-            None => {
-                eprintln!("Expected label in instruction, got EOF.");
-                self.err = true;
-                return None;
-            }
-        };
-        let p = self.get_mod().code.len() * 4;
-        match self.get_mod().labels.get(&s) {
-            Some(s) => Some((*s as isize - p as isize) as i32),
-            None => {
-                self.get_mod().jumps.push((s, p, if branchp { JumpType::Branch } else { JumpType::Jump }));
-                None
-            }
-        }
-    }
-
-    fn unwrap_path(&mut self) -> Vec<Symbol> {
-        let mut path = Vec::new();
-        loop {
-            match self.next() {
-                Some(Token::RParen) => return path,
-                Some(Token::Symbol(s)) => path.push(s),
-                Some(_) => {
-                    eprintln!("Unexpected token in path");
-                    self.err = true;
-                    self.skip_opcode();
-                    return Vec::new();
-                }
-                None => {
-                    eprintln!("Unexpected EOF");
-                    self.err = true;
-                    return Vec::new();
-                }
-            }
-        }
-    }
-
-    fn follow_path(&mut self, path: &[Symbol]) -> Option<Unit> {
-        if path.len() == 1 {
-            let mut m = &self.modules[self.module];
-            loop {
-                if let Some((_, u)) = m.children.get(&path[0]) {
-                    return Some(*u);
-                } else if m.filep {
-                    return None;
-                } else {
-                    // shitty bc
-                    let p = m.parent.unwrap();
-                    m = &self.modules[p];
-                }
-            }
-        }
-
-        let mut m = &self.modules[self.module];
-        let mut i = 0;
-        while i < path.len() {
-            let p = path[i];
-            if p == symbols::CARAT {
-                i += 1;
-                let p = if let Some(p) = m.parent {
-                    p
-                } else {
-                    eprintln!("Path jumped past root.");
-                    self.err = true;
-                    return None;
-                };
-                m = &self.modules[p];
-            } else {
-                break;
-            }
-        }
-
-        while i < path.len() {
-            let p = path[i];
-            i += 1;
-            if p == symbols::CARAT {
-                eprintln!("Bad path, can only move up (`^`) at beginning of path.");
-                self.err = true;
-                return None;
-            }
-            match m.children.get(&p) {
-                v @ Some((_, Unit::Bytes(_, _, _))) | v @ Some((_, Unit::Constant(_))) => {
-                    if i == path.len() {
-                        return Some(v.unwrap().1);
-                    } else {
-                        return None;
-                    }
-                }
-                Some((_, Unit::Module(id))) => m = &self.modules[*id],
-                None => {
-                    if m.filep {
-                        self.err = true;
-                        return None;
-                    } else {
-                        let p = m.parent.unwrap();
-                        m = &self.modules[p];
-                        i -= 1;
-                    }
-                }
-            }
-        }
-        Some(Unit::Module(m.id))
     }
 
     fn next(&mut self) -> Option<Token> {
