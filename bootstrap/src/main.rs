@@ -13,8 +13,8 @@ use std::path::PathBuf;
 use std::process::exit;
 
 fn print_usage(prog: &str) {
-    eprintln!("USAGE:\n\t{} <INPUT> [OUTPUT]", prog);
-    eprintln!("\t-d: Include debug info.");
+    eprintln!("USAGE: {} <INPUT> [OUTPUT]", prog);
+    eprintln!("    -d: Include debug info.");
 }
 
 fn main() {
@@ -23,12 +23,13 @@ fn main() {
     let mut input_file = None;
     let mut output_file = None;
     let mut debug = false;
+    let mut usage = false;
     for arg in args {
         if arg == "-d" {
             debug = true;
         } else if arg.starts_with("-") {
             eprintln!("Unknown flag `{}`.", arg);
-            print_usage(&prog);
+            usage = true;
         } else if input_file.is_none() {
             input_file = Some(arg);
         } else if output_file.is_none() {
@@ -50,6 +51,11 @@ fn main() {
     } else {
         "bin.elf".to_string()
     };
+
+    if usage {
+        print_usage(&prog);
+        eprintln!();
+    }
 
     symbols::init();
     if (std::path::Path::new(&input_file)).is_dir() {
@@ -103,7 +109,7 @@ fn read_file<P: AsRef<std::path::Path>>(path: P) -> Result<Vec<u8>, String> {
 
 fn assemble(tokenizer: Tokenizer) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>)
 {
-    let mut root = Module::new(0, None, false);
+    let mut root = Module::new(0, None, true);
     let mut path: PathBuf = tokenizer.filename.clone().into();
     path.pop();
     root.path = path;
@@ -358,7 +364,7 @@ impl Asm {
             Some(Token::RParen) => (),
             Some(t) => {
                 self.print_err("Forgot closing parenthesis in import statement",
-                             "\tNote: each import requires its own import statement.");
+                               "\tNote: each import requires its own import statement.");
                 if t == Token::LParen {
                     self.backtrack();
                 }
@@ -396,14 +402,16 @@ impl Asm {
             let p = path[i];
             i += 1;
             if p == symbols::CARAT {
-                self.print_err(&format!("Invalid path `{}` in import statement", self.path_to_string(&path)), "");
+                self.print_err(&format!("Invalid path `{}` in import statement", self.path_to_string(&path)),
+                               "\tNote: can only move up (`^`) at beginning of path in expression.");
                 return;
             } else if p == symbols::STAR && i != path.len() {
-                self.print_err(&format!("Invalid path `{}` in import statement", self.path_to_string(&path)), "");
+                self.print_err(&format!("Invalid path `{}` in import statement", self.path_to_string(&path)),
+                               "\tNote: can only import all (`*`) at the end of path in expression.");
                 return;
             } else if p == symbols::STAR {
                 for (k, (importp, v)) in m.children.clone() {
-                    if self.get_mod().children.contains_key(&k) {
+                    if self.in_scope(k) {
                         self.print_err(&format!("`{}` is already defined in this scope from import statement", get_value(k)), "");
                     } else if !importp {
                         self.get_mod().children.insert(k, (true, v));
@@ -418,7 +426,7 @@ impl Asm {
                     if importp {
                         self.print_err("Cannot import an import from import statement", "");
                     } else if i == path.len() {
-                        if self.get_mod().children.contains_key(&p) {
+                        if self.in_scope(p) {
                             self.print_err(&format!("`{}` is already defined in this scope from import statement", get_value(p)), "");
                         } else {
                             self.get_mod().children.insert(p, (true, v));
@@ -429,13 +437,19 @@ impl Asm {
                     return;
                 }
                 Some((importp, Unit::Module(id))) if !importp => if i == path.len() {
-                    if self.get_mod().children.contains_key(&p) {
+                    if id == self.get_mod().id {
+                        self.print_err("Cannot import self", "");
+                    } else if self.in_scope(p) {
                         self.print_err(&format!("`{}` is already defined in this scope in import statement", get_value(p)), "");
                     } else {
                         self.get_mod().children.insert(p, (true, Unit::Module(id)));
                     }
                     return;
                 } else {
+                    if id == self.get_mod().id {
+                        self.print_err("Cannot import self", "");
+                        return;
+                    }
                     m = &self.modules[id]
                 },
                 Some(_) | None => {
@@ -449,7 +463,7 @@ impl Asm {
                         let p = m2.parent.unwrap();
                         m2 = &self.modules[p];
                     }
-                    let ptr = m2.parent.unwrap();
+                    let ptr = m2.parent.unwrap_or(0);
                     let mut file_path = self.modules[ptr].path.clone();
                     file_path.push(get_value(p));
                     if file_path.is_dir() {
@@ -629,6 +643,13 @@ impl Asm {
             },
             None => return self.print_err("Unexpected EOF in `include!`", ""),
         };
+
+        if filename == self.tokenizer.filename {
+            self.print_err("Recursive include", "");
+            self.skip_opcode();
+            return;
+        }
+
         match self.next() {
             Some(Token::RParen) => (),
             Some(Token::String(_, _)) => {
@@ -673,7 +694,7 @@ impl Asm {
             },
             Some(Token::Pound) | Some(Token::String(_, _)) => {
                 self.print_err(&format!("Definition `{}` must be a constant", get_value(ident)),
-                               "\tNOTE: Define is only for build-time constants, did you mean `defcon`/`defvar`?");
+                               "\tNote: Define is only for build-time constants, did you mean `defcon`/`defvar`?");
             }
             Some(Token::RParen) => return self.print_err(&format!("Definition `{}` must have a value", get_value(ident)), ""),
             Some(_) => self.print_err(&format!("Definition `{}` must be a constant", get_value(ident)), ""),
@@ -738,9 +759,7 @@ impl Asm {
                     return;
                 };
                 if v.is_empty() {
-                    let err = self.err;
-                    self.print_err("Definition of empty array literal", "");
-                    self.err = err
+                    self.print_warn("Definition of empty array literal");
                 }
 
                 let len = v.len();
@@ -763,9 +782,7 @@ impl Asm {
             Some(Token::String(start, end)) => {
                 let mut s = self.get_string(start, end);
                 if s.is_empty() {
-                    let err = self.err;
-                    self.print_err("Definition of empty string literal", "");
-                    self.err = err
+                    self.print_warn("Definition of empty string literal");
                 }
 
                 let len = s.len();
@@ -858,6 +875,12 @@ impl Asm {
                 }
                 None => return self.print_err("Unexpected EOF in instruction", ""),
             };
+
+            if path.len() == 1 && path[0] <= symbols::X31 {
+                self.print_err("Expected path as argument to `la` instruction, got register", "");
+                return self.skip_opcode();
+            }
+
             let (p, constant) = match self.follow_path(&path) {
                 Some(Unit::Bytes(p, _, c)) => (p, c),
                 _ => {
@@ -936,8 +959,8 @@ impl Asm {
         match self.next() {
             Some(Token::RParen) => (),
             Some(Token::LParen) => {
-                self.print_err("Unclosed instruction", "");
                 self.backtrack();
+                self.print_err("Unclosed instruction", "");
             }
             Some(_) => {
                 self.print_err("Too many arguments or missing parenthesis in instruction", "");
@@ -973,8 +996,8 @@ impl Asm {
                 0
             },
             Some(Token::RParen) | Some(Token::LParen) => {
-                self.print_err("Expected register in instruction", "");
                 self.backtrack();
+                self.print_err("Expected register in instruction", "");
                 0
             }
             Some(_) => {
@@ -992,10 +1015,17 @@ impl Asm {
         match self.next() {
             Some(Token::LParen) => {
                 match self.next() {
+                    Some(Token::RParen) => {
+                        self.print_err("Empty path in expression", "");
+                        return 0;
+                    }
                     Some(Token::Symbol(s)) if s == symbols::LEN => (),
-                    Some(Token::Symbol(_)) => {
+                    _ => {
                         self.backtrack();
                         let path = self.unwrap_path();
+                        if path.is_empty() {
+                            return 0;
+                        }
                         return match self.follow_path(&path) {
                             Some(Unit::Constant(i)) => i,
                             Some(_) => {
@@ -1007,19 +1037,6 @@ impl Asm {
                                 0
                             }
                         };
-                    }
-                    Some(Token::RParen) => {
-                        self.print_err("Empty path in expression", "");
-                        return 0;
-                    }
-                    Some(_) => {
-                        self.print_err("Unexpected expression in path", "");
-                        self.skip_opcode();
-                        return 0;
-                    }
-                    None => {
-                        self.print_err("Unexpected EOF in path in expression", "");
-                        return 0;
                     }
                 }
                 // len
@@ -1039,21 +1056,19 @@ impl Asm {
                         self.print_err("Expected path as argument in `len` expression", "");
                         0
                     }
-                    None => {
-                        self.print_err("Unexpected EOF in `len` expression", "");
-                        0
-                    }
+                    None => 0,
                 };
 
                 match self.next() {
                     Some(Token::RParen) => (),
-                    Some(Token::LParen) => {
-                        self.backtrack();
+                    Some(t) => {
+                        if Token::LParen == t {
+                            self.backtrack();
+                        }
                         self.print_err("Too many arguments or missing parenthesis in `len` expression", "");
-                    }
-                    Some(_) => {
-                        self.print_err("Too many arguments or missing parenthesis in `len` expression", "");
-                        self.skip_opcode();
+                        if Token::LParen != t {
+                            self.skip_opcode();
+                        }
                     }
                     None => self.print_err("Unexpected EOF in `len` expression", ""),
                 }
@@ -1116,6 +1131,7 @@ impl Asm {
                 true
             } else {
                 self.print_err(&format!("Expected `+`/`-`, got `{}` in expression offset", get_value(s)), "");
+                self.skip_opcode();
                 return (0, 0);
             },
             Some(Token::RParen) => {
@@ -1140,17 +1156,18 @@ impl Asm {
             } else {
                 (self.unwrap_imm(), self.unwrap_register())
             },
-            Some(Token::Integer(_)) | Some(Token::LParen) => {
+            Some(Token::Integer(_)) | Some(Token::Char(_)) | Some(Token::LParen) => {
                 (self.unwrap_imm(), self.unwrap_register())
             }
             Some(Token::RParen) => {
                 self.print_err("Expected register and immediate in expression offset", "");
+                self.next();
                 return (0, 0);
             }
             Some(_) => {
-                // TODO: allow chars?
                 self.print_err("Expected register and immediate in expression offset", "");
-                (0, 0)
+                self.skip_opcode();
+                return (0, 0)
             }
             None => {
                 self.print_err("Unexpected EOF in expression offset", "");
@@ -1216,7 +1233,7 @@ impl Asm {
 
         loop {
             match self.next() {
-                Some(Token::RParen) => return path,
+                Some(Token::RParen) => break,
                 Some(Token::Symbol(s)) => path.push(s),
                 Some(_) => {
                     self.print_err("Unexpected token in path", "");
@@ -1229,6 +1246,10 @@ impl Asm {
                 }
             }
         }
+        if path.len() == 1 {
+            self.print_warn("Unnecessary parenthesis in path");
+        }
+        path
     }
 
     fn unwrap_ident(&mut self) -> Option<Symbol> {
@@ -1240,7 +1261,7 @@ impl Asm {
             }
             Some(_) => {
                 self.print_err("Expected identifier in definition", "");
-                Some(0)
+                None
             }
             None => {
                 self.print_err("Unexpected EOF in definition", "");
@@ -1276,9 +1297,10 @@ impl Asm {
                     }
                     v.push(i as u8);
                 }
+                Some(Token::Char(c)) => {
+                    v.push(c);
+                }
                 Some(Token::Symbol(_)) => self.print_err("Array literals must consist of u8 integers, cannot use variables", ""),
-                // TODO: maybe allow this?
-                Some(Token::Char(_)) => self.print_err("Array literals must consist of u8 integers", ""),
                 Some(_) => self.print_err("Array literals must consist of u8 integers", ""),
                 None => {
                     self.print_err("Unexpected EOF in array literal", "");
@@ -1399,6 +1421,12 @@ impl Asm {
         v
     }
 
+    fn print_warn(&mut self, msg: &str) {
+        let err = self.err;
+        self.print_err(msg, "");
+        self.err = err;
+    }
+
     fn print_err(&mut self, msg: &str, note: &str) {
         let (line, i, filename) = self.info();
         let (s, mut e) = if self.tokenizer.lines.is_empty() {
@@ -1431,17 +1459,7 @@ impl Asm {
 
     fn info(&self) -> (usize, usize, String) {
         let t = self.tokenizer.token_info[self.tokenizer.token_position-1];
-        /*
-        let s = if self.tokenizer.lines.is_empty() {
-            0
-        } else if t.line >= self.tokenizer.lines.len() {
-            self.tokenizer.lines[t.line-1].1
-        } else {
-            self.tokenizer.lines[t.line].0
-        };
-        */
         (t.line, self.tokenizer.idx_in_line(t.start), self.tokenizer.filename.clone())
-        //(t.line, t.start - s, self.tokenizer.filename.clone())
     }
 
     fn same_line(&self, start: usize) -> bool {

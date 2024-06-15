@@ -155,18 +155,7 @@ impl Tokenizer {
                 return idx - *s;
             }
         }
-        idx
-    }
-
-    pub fn line(&self, idx: usize) -> usize {
-        let mut i = 0;
-        for (_, e) in &self.lines {
-            if *e > idx {
-                return i;
-            }
-            i += 1;
-        }
-        i
+        idx - self.lines.last().unwrap_or(&(0, 0)).1
     }
 
     fn print_err(&mut self, start: usize, line: usize, msg: &str) {
@@ -205,8 +194,8 @@ impl Tokenizer {
             } else if c == b'\n' {
                 self.newline();
             } else if c == b'"' {
-                self.token_info.push(TokenInfo { start: start-1, end: self.position, line: line });
-                return Some(Token::String(start, self.position - 1));
+                self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
+                return Some(Token::String(start+1, self.position - 1));
             }
         }
         self.print_err(start, line, "Unclosed string beginning");
