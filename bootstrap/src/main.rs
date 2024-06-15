@@ -76,14 +76,32 @@ fn main() {
     } else {
         elf::Elf::new(program, data, rodata, rewrites)
     };
-    let f = OpenOptions::new()
+    let f = match OpenOptions::new()
         .create(true)
         .write(true)
         .truncate(true)
         .mode(0o777)
-        .open(output_file)
-        .unwrap();
-    e.write(f).unwrap();
+        .open(&output_file)
+    {
+        Ok(f) => f,
+        Err(e) => {
+            match e.kind() {
+                IOError::PermissionDenied => eprintln!("Permission denied trying to open file `{}`", output_file),
+                IOError::OutOfMemory => eprintln!("Not enough memory to write file `{}`", output_file),
+                _ => eprintln!("Error writing file `{}`: {}", output_file, e),
+            }
+            exit(1);
+        }
+    };
+
+    if let Err(e) = e.write(f) {
+        match e.kind() {
+            IOError::PermissionDenied => eprintln!("Permission denied trying to open file `{}`", output_file),
+            IOError::OutOfMemory => eprintln!("Not enough memory to write file `{}`", output_file),
+            _ => eprintln!("Error writing file `{}`: {}", output_file, e),
+        }
+        exit(1);
+    }
 }
 
 fn read_file<P: AsRef<std::path::Path>>(path: P) -> Result<Vec<u8>, String> {
@@ -101,7 +119,7 @@ fn read_file<P: AsRef<std::path::Path>>(path: P) -> Result<Vec<u8>, String> {
                 format!("Not enough memory to read file `{}`", path.display())
             }
             _ => {
-                format!("Unknown error reading file `{}`: {}", path.display(), e)
+                format!("Error reading file `{}`: {}", path.display(), e)
             }
         })
     }
@@ -525,7 +543,7 @@ impl Asm {
                         format!("Not enough memory to read directory `{}`", file_path.display())
                     }
                     _ => {
-                        format!("Unknown error reading directory `{}`: {}", file_path.display(), e)
+                        format!("Error reading directory `{}`: {}", file_path.display(), e)
                     }
                 };
                 self.print_err("Error executing import", &format!("\t{}", e));
@@ -911,7 +929,6 @@ impl Asm {
             let rs2 = self.unwrap_register();
             let mut i = (rs2 << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | 0b1100011;
             if let Some((imm, label)) = self.unwrap_label(true) {
-                // TODO: check range
                 if imm < -4096 || imm > 4095 {
                     self.print_err(&format!("Branch to `{}` too far", get_value(label)), "");
                 }

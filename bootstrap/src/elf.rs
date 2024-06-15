@@ -15,7 +15,6 @@ pub struct Elf {
 
 impl Elf {
     pub fn new(mut program: Vec<u32>, mut data: Vec<u8>, rodata: Vec<u8>, rewrites: Vec<(usize, usize, bool)>) -> Self {
-        // TODO
         let mut error = false;
         if program.len() * 4 >= 0x200000 {
             eprintln!("Code has exceeded 2MB limit.");
