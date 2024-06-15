@@ -31,16 +31,151 @@ start
     (jal x1 (malloc init))
     ;;(include! "test-malloc.sasm")
     ;;(include! "test-symbol-table.sasm")
+
+    (add x20 x0 x2)
+    ;; argc
+    (lw x21 x20)
+    (subi x21 x21 1)
+    ;; prog
+    (ld x22 (+ x20 8))
+    (addi x20 x20 16)
+    ;; input_file
+    (add x23 x0 x0)
+    ;; output_file
+    (add x24 x0 x0)
+    ;; debug
+    (add x25 x0 x0)
+    ;; usage?
+    (add x26 x0 x0)
+
+    args-loop
+        (beq x0 x21 after-args)
+        (subi x21 x21 1)
+        (ld x5 x20)
+        (addi x20 x20 8)
+        (lb x6 x5)
+        (subi x6 x6 #'-')
+        (beq x6 x0 args-flag)
+        (bne x23 x0 args-output)
+        (add x23 x0 x6)
+        (jal x0 args-loop)
+
+        args-flag
+        (lb x6 (+ x5 1))
+        (subi x6 x6 #'d')
+        (bne x6 x0 args-flag-err)
+        (lb x6 (+ x5 2))
+        (bne x6 x0 args-flag-err)
+        (addi x25 x0 1)
+        (jal x0 args-loop)
+
+        args-flag-err
+        (addi x26 x0 1)
+        (defcon flag-err-1 "Unknown flag `")
+        (defcon flag-err-2 "`.\n")
+        ;; write(stdout, _, _)
+        (addi x10 x0 STDOUT)
+        (la x11 flag-err-1)
+        (addi x12 x0 (len flag-err-1))
+        (addi x17 x0 SYS_WRITE)
+        (ecall)
+        ;; write(stdout, flag, flag.len)
+        (addi x10 x0 STDOUT)
+        (add x11 x0 x5)
+        (addi x12 x0 -1)
+        args-flag-err-loop
+            (addi x12 x12 1)
+            (lb x6 x5)
+            (addi x5 x5 1)
+            (bne x6 x0 args-flag-err-loop)
+        (ecall)
+        ;; write(stdout, _, _)
+        (addi x10 x0 STDOUT)
+        (la x11 flag-err-2)
+        (addi x12 x0 (len flag-err-2))
+        (ecall)
+        (jal x0 args-loop)
+
+
+        args-output
+        (bne x24 x0 args-err)
+        (add x24 x0 x6)
+        (jal x0 args-loop)
+
+        args-err
+        ;; write(stdout, _, _)
+        (defcon args-err-str "Too many arguments.\n")
+        (addi x10 x0 STDOUT)
+        (la x11 args-err-str)
+        (addi x12 x0 (len args-err-str))
+        (addi x17 x0 SYS_WRITE)
+        (ecall)
+        (jal x1 print-usage)
+        ;; exit(1)
+        (addi x10 x0 1)
+        (addi x17 x0 SYS_EXIT)
+        (ecall)
+
+    print-usage
+        (defcon usage-1 "USAGE: ")
+        (defcon usage-2 " <INPUT> [OUTPUT]\n    -d: Include debug info.\n")
+        ;; write(STDOUT, _, _)
+        (addi x10 x0 STDOUT)
+        (la x11 usage-1)
+        (addi x12 x0 (len usage-1))
+        (addi x17 x0 SYS_WRITE)
+        (ecall)
+        ;; write(STDOUT, prog, prog.len)
+        (addi x10 x0 STDOUT)
+        (add x11 x0 x22)
+        (addi x12 x0 -1)
+        print-usage-loop
+            (addi x12 x12 1)
+            (lb x5 x22)
+            (addi x22 x22 1)
+            (bne x5 x0 print-usage-loop)
+        (ecall)
+        ;; write(STDOUT, _, _)
+        (addi x10 x0 STDOUT)
+        (la x11 usage-2)
+        (addi x12 x0 (len usage-2))
+        (ecall)
+        (jalr x0 x1)
+
+    after-args
+        (bne x23 x0 after-args-output)
+        (jal x1 print-usage)
+        ;; exit(1)
+        (addi x10 x0 1)
+        (addi x17 x0 SYS_EXIT)
+        (ecall)
+    after-args-output
+        (bne x24 x0 after-args-usage)
+        (defcon default-output "bin.elf\0")
+        (la x24 default-output)
+    after-args-usage
+        (beq x26 x0 after-args-done)
+        (jal x1 print-usage)
+        ;; write(stdout, "\n", 1);
+        (addi x10 x0 STDOUT)
+        (defcon newline "\n")
+        (la x11 newline)
+        (addi x12 x0 (len newline))
+        (addi x17 x0 SYS_WRITE)
+        (ecall)
+    after-args-done
+
+    (subi x2 x2 24)
+    ;; input
+    (sd x2 x23)
+    ;; output
+    (sd (+ x2 8) x24)
+    ;; debug?
+    (sd (+ x2 16) x25)
     (jal x1 (symbol-table init))
 
-    ;; Check that argc == 2
-    (lw x10 x2)
-    (addi x11 x0 2)
-    (blt x10 x11 error-argc)
-
     ;; Open input file
-    ;; argv[1]
-    (ld x11 (+ x2 16))
+    (ld x11 x2)
     (jal x1 read-file)
 
     ;; Tokenize(input, input.len) -> (tokens, tokens.len)
@@ -49,11 +184,6 @@ start
     ;(include! "test-tokenizer.sasm")
 
     (jal x1 assemble)
-
-    (ld x6 x2)
-    (subi x6 x6 3)
-    (bne x6 x0 load-default-output-name)
-    (ld x6 (+ x2 24))
 
     open-output-name
     (subi x2 x2 48)
@@ -66,7 +196,7 @@ start
 
     ;; openat(AT_FDCWD, output-name, O_WRONLY|O_CREAT|O_TRUNC, 0o777)
     (addi x10 x0 -100)
-    (add x11 x0 x6)
+    (add x11 x0 x24)
     (addi x12 x0 577)
     (addi x13 x0 511)
     (addi x17 x0 SYS_OPENAT)
@@ -96,15 +226,6 @@ start
     (addi x17 x0 SYS_EXIT)
     (ecall)
 
-    load-default-output-name
-        (defcon default-output-name "bin.elf\0")
-        (la x6 default-output-name)
-        (jal x0 open-output-name)
-
-    error-argc
-        (addi x10 x0 1)
-        (addi x17 x0 SYS_EXIT)
-        (ecall)
     error-open
         (addi x10 x0 2)
         (addi x17 x0 SYS_EXIT)
@@ -1521,17 +1642,21 @@ start
 ;;  x11 - program-end
 ;;  x12 - data-ptr: ArrayBuf<u8>
 ;;  x13 - data-end
-;;  x14 - rewrite-ptr: ArrayBuf<(program-ptr[i], usize)>
-;;  x15 - rewrite-end
-;;  x16 - Output fd
+;;  x14 - rodata-ptr: ArrayBuf<u8>
+;;  x15 - rodata-end
+;;  x16 - rewrite-ptr: ArrayBuf<(program-ptr[i], usize, bool)>
+;;  x17 - rewrite-end
+;;  x18 - Output fd
 (module elf
     ;; 0x400000
-    (define ENTRY_LOCATION 4194304)
+    (define ENTRY_LOCATION 0x400)
     ;; 0x600000
-    (define DATA_LOCATION 6291456)
+    (define DATA_LOCATION 0x600)
+    ;; 0x800000
+    (define RODATA_LOCATION 0x800)
     ;; 64 + 56 + 56
     (define program_offset 176)
-    (defcon ehdr #(127 69 76 70 2 1 1 0 0 0 0 0 0 0 0 0
+    (defvar ehdr #(127 69 76 70 2 1 1 0 0 0 0 0 0 0 0 0
                    2 0 ;; e_type
                    243 0 ;; e_machine
                    1 0 0 0 ;; e_version
@@ -1546,23 +1671,14 @@ start
                    0 0 ;; e_num
                    0 0)) ;; e_shstrndx
 
-    (defvar phdr-text #(1 0 0 0 ;; p_type
-                        5 0 0 0 ;; p_flags
-                        0 0 0 0 0 0 0 0 ;; p_offset = 0
-                        0 0 64 0 0 0 0 0 ;; p_vaddr = ENTRY_LOCATION
-                        0 0 64 0 0 0 0 0 ;; p_paddr = ENTRY_LOCATION
-                        0 0 0 0 0 0 0 0 ;; p_filesz
-                        0 0 0 0 0 0 0 0 ;; p_memsz
-                        0 16 0 0 0 0 0 0)) ;; p_align
-
-    (defvar phdr-data #(1 0 0 0 ;; p_type
-                        6 0 0 0 ;; p_flags
-                        0 0 0 0 0 0 0 0 ;; p_offset
-                        0 0 0 0 0 0 0 0 ;; p_vaddr
-                        0 0 0 0 0 0 0 0 ;; p_paddr
-                        0 0 0 0 0 0 0 0 ;; p_filesz
-                        0 0 0 0 0 0 0 0 ;; p_memsz
-                        0 16 0 0 0 0 0 0)) ;; p_align
+    (defvar phdr #(1 0 0 0 ;; p_type
+                   0 0 0 0 ;; p_flags
+                   0 0 0 0 0 0 0 0 ;; p_offset = 0
+                   0 0 0 0 0 0 0 0 ;; p_vaddr = ENTRY_LOCATION
+                   0 0 0 0 0 0 0 0 ;; p_paddr = ENTRY_LOCATION
+                   0 0 0 0 0 0 0 0 ;; p_filesz
+                   0 0 0 0 0 0 0 0 ;; p_memsz
+                   0 16 0 0 0 0 0 0)) ;; p_align
 
     (add x20 x0 x10)
     (add x21 x0 x11)
@@ -1571,98 +1687,230 @@ start
     (add x24 x0 x14)
     (add x25 x0 x15)
     (add x26 x0 x16)
+    (add x27 x0 x17)
+    (add x28 x0 x18)
 
     ;; align
-    (andi x5 x21 7)
-    (beq x5 x0 rewrite)
-    (sw x21 x0)
-    (addi x21 x21 4)
+    (add x5 x0 x0)
+    (sub x6 x23 x22)
+    ;; -0x200000
+    (lui x7 0xFFE00)
+    (add x6 x6 x7)
+    (blt x6 x0 check-data-len)
+    (addi x5 x0 1)
+    (defcon check-code-str "Code has exceeded 2MB limit.\n")
+    ;; write(STDOUT, _, _)
+    (addi x10 x0 STDOUT)
+    (la x11 check-code-str)
+    (addi x12 x0 (len check-code-str))
+    (addi x17 x0 SYS_WRITE)
+    (ecall)
 
-    rewrite
-    (sub x31 x21 x20)
-    (addi x31 x31 program_offset)
-    (addi x30 x0 96)
-    (slli x30 x30 16)
-    (add x31 x31 x30)
-    rewrite-loop
-        (beq x24 x25 rewrite-done)
-        (ld x5 x24)
-        (ld x6 (+ x24 8))
-        (addi x24 x24 16)
-        ;;offset
-        (sub x6 x6 x22)
-        (add x6 x6 x31)
-        ;; imm20
-        (addi x30 x0 1)
-        (slli x30 x30 11)
-        (add x7 x6 x30)
-        (srai x7 x7 12)
-        (slli x7 x7 12)
-        ;; imm12
-        (addi x30 x0 255)
-        (slli x30 x30 4)
-        (addi x30 x30 15)
-        (and x6 x6 x30)
-        (slli x6 x6 20)
-        ;; lui
-        (lw x30 x5)
-        (or x30 x30 x7)
-        (sw x5 x30)
-        ;; addi
-        (lw x30 (+ x5 4))
-        (or x30 x30 x6)
-        (sw (+ x5 4) x30)
-        (jal x0 rewrite-loop)
-    rewrite-done
+    check-data-len
+    (sub x6 x25 x24)
+    ;; -0x200000
+    (lui x7 0xFFE00)
+    (add x6 x6 x7)
+    (blt x6 x0 after-check)
+    (addi x5 x0 1)
+    (defcon check-data-str "Variable data (`defvar`) has exceeded 2MB limit.\n")
+    ;; write(STDOUT, _, _)
+    (addi x10 x0 STDOUT)
+    (la x11 check-data-str)
+    (addi x12 x0 (len check-data-str))
+    (addi x17 x0 SYS_WRITE)
+    (ecall)
+
+    after-check
+        (beq x5 x0 check-done)
+        ;; exit(1)
+        (addi x10 x0 1)
+        (addi x17 x0 SYS_EXIT)
+        (ecall)
+    check-done
+
+    (addi x5 x0 1)
+    (sub x6 x23 x22)
+    (beq x6 x0 check-phdr-rodata)
+    (addi x5 x5 1)
+    check-phdr-rodata
+    (sub x6 x25 x24)
+    (beq x6 x0 check-phdr-done)
+    (addi x5 x5 1)
+    check-phdr-done
+    ;; program-offset
+    (addi x6 x0 (len phdr))
+    (mul x5 x5 x6)
+    (addi x5 x5 (len ehdr))
 
     ;; ehdr
-    ;; write(fd, msg, len)
-    (add x10 x0 x26)
     (la x11 ehdr)
+    (lui x6 ENTRY_LOCATION)
+    (add x6 x6 x5)
+    (sd (+ x11 24) x6)
+    ;; write(fd, msg, len)
+    (add x10 x0 x28)
     (addi x12 x0 (len ehdr))
     (addi x17 x0 SYS_WRITE)
     (ecall)
 
-    ;; phdrs
-    (la x11 phdr-text)
-    (addi x5 x21 program_offset)
-    (sub x5 x5 x20)
-    (sd (+ x11 32) x5)
-    (sd (+ x11 40) x5)
+    (andi x6 x21 7)
+    (beq x6 x0 text-phdr)
+    (sw x21 x0)
+    (addi x21 x21 4)
 
+    text-phdr
+    ;;data_offset
+    (sub x6 x21 x20)
+    (add x5 x6 x5)
+
+    ;; text phdr
+    (la x11 phdr)
+    ;; p_flags
+    (addi x7 x0 5)
+    (sw (+ x11 4) x7)
+    ;; p_vaddr
+    (lui x7 ENTRY_LOCATION)
+    (sw (+ x11 16) x7)
+    ;; p_paddr
+    (sw (+ x11 24) x7)
+    ;; p_filesz
+    (sw (+ x11 32) x5)
+    ;; p_memsz
+    (sw (+ x11 40) x5)
     ;; write(fd, msg, len)
-    (add x10 x0 x26)
-    (addi x12 x0 (len phdr-text))
+    (add x10 x0 x28)
+    (addi x12 x0 (len phdr))
     (addi x17 x0 SYS_WRITE)
     (ecall)
 
-    (la x11 phdr-data)
-    (sd (+ x11 8) x5)
-    (addi x6 x0 96)
-    (slli x6 x6 16)
-    (add x5 x5 x6)
-    (sd (+ x11 16) x5)
-    (sd (+ x11 24) x5)
-    (sub x5 x23 x22)
-    (sd (+ x11 32) x5)
-    (sd (+ x11 40) x5)
+    data-align
+        (andi x31 x23 7)
+        (beq x31 x0 data-phdr)
+        (sb x23 x0)
+        (addi x23 x23 1)
+        (jal x0 data-align)
 
+    data-phdr
+    ;; data.len
+    (sub x6 x23 x22)
+    (beq x6 x0 rodata-phdr)
+    ;; data phdr
+    (la x11 phdr)
+    ;; p_flags
+    (addi x7 x0 6)
+    (sw (+ x11 4) x7)
+    ;; p_offset
+    (sw (+ x11 8) x5)
+    ;; p_vaddr
+    (lui x7 DATA_LOCATION)
+    (add x7 x7 x5)
+    (sw (+ x11 16) x7)
+    ;; p_paddr
+    (sw (+ x11 24) x7)
+    ;; p_filesz
+    (sw (+ x11 32) x6)
+    ;; p_memsz
+    (sw (+ x11 40) x6)
     ;; write(fd, msg, len)
-    (add x10 x0 x26)
-    (addi x12 x0 (len phdr-data))
+    (add x10 x0 x28)
+    (addi x12 x0 (len phdr))
     (addi x17 x0 SYS_WRITE)
     (ecall)
+
+    rodata-phdr
+    ;; rodata_offset
+    (add x6 x6 x5)
+    ;; rodata.len
+    (sub x7 x25 x24)
+    (beq x7 x0 after-phdr)
+
+    ;; rodata phdr
+    (la x11 phdr)
+    ;; p_flags
+    (addi x31 x0 4)
+    (sw (+ x11 4) x31)
+    ;; p_offset
+    (sw (+ x11 8) x5)
+    ;; p_vaddr
+    (lui x31 RODATA_LOCATION)
+    (add x31 x31 x5)
+    (sw (+ x11 16) x31)
+    ;; p_paddr
+    (sw (+ x11 24) x31)
+    ;; p_filesz
+    (sw (+ x11 32) x7)
+    ;; p_memsz
+    (sw (+ x11 40) x7)
+    ;; write(fd, msg, len)
+    (add x10 x0 x28)
+    (addi x12 x0 (len phdr))
+    (addi x17 x0 SYS_WRITE)
+    (ecall)
+
+    after-phdr
+    ;; data_pos
+    (lui x7 DATA_LOCATION)
+    (add x5 x5 x7)
+    ;; rodata_pos
+    (lui x7 RODATA_LOCATION)
+    (add x6 x6 x7)
+    (add x29 x0 x20)
+
+    (beq x26 x27 rewrite-done)
+    rewrite
+        (ld x7 x26)
+        (ld x31 (+ x26 16))
+        (beq x31 x0 rewrite-data)
+        ;; offset
+        (add x7 x7 x6)
+        (jal x0 rewrite-imm)
+    rewrite-data
+        ;; offset
+        (add x7 x7 x5)
+    rewrite-imm
+        ;; imm20
+        (addi x29 x0 1)
+        (slli x29 x29 11)
+        (add x29 x29 x7)
+        (srai x29 x29 12)
+        (slli x29 x29 12)
+        ;; lui
+        (ld x31 (+ x26 8))
+        (add x31 x31 x20)
+        (ld x30 x31)
+        (or x30 x30 x29)
+        (sd x31 x30)
+        ;; addi
+        ;; imm12
+        (addi x30 x0 255)
+        (slli x30 x30 4)
+        (addi x30 x30 15)
+        (and x7 x7 x30)
+        (ld x30 (+ x31 4))
+        (or x30 x30 x7)
+        (sd (+ x31 4) x30)
+
+        (addi x26 x26 24)
+        (bne x26 x27 rewrite)
+    rewrite-done
 
     ;; program
-    (add x10 x0 x26)
+    (add x10 x0 x28)
     (add x11 x0 x20)
     (sub x12 x21 x20)
     (addi x17 x0 SYS_WRITE)
     (ecall)
     ;; data
-    (add x10 x0 x26)
+    (add x10 x0 x28)
     (add x11 x0 x22)
     (sub x12 x23 x22)
+    (addi x17 x0 SYS_WRITE)
+    (ecall)
+    ;; rodata
+    (add x10 x0 x28)
+    (add x11 x0 x24)
+    (sub x12 x25 x24)
     (addi x17 x0 SYS_WRITE)
     (ecall)
 
