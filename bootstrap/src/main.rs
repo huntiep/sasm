@@ -1051,8 +1051,18 @@ impl Asm {
                             }
                         }
                     },
+                    Some(Token::String(start, end)) => {
+                        let s = self.get_string(start, end);
+                        s.len() as i64
+                    }
+                    Some(Token::Pound) => {
+                        if let Some(v) = self.unwrap_array() {
+                            v.len() as i64
+                        } else {
+                            0
+                        }
+                    }
                     Some(_) => {
-                        // TODO: allow strings/byte arrays?
                         self.print_err("Expected path as argument in `len` expression", "");
                         0
                     }
