@@ -333,7 +333,7 @@ impl Tokenizer {
 
     fn intp(&mut self, o_start: usize, end: usize, line: usize) -> Option<i64> {
         let mut start = o_start;
-        let mut i: i64 = 0;
+        let mut i: u64 = 0;
         let mut neg = false;
         if self.input[start] == b'+' || self.input[start] == b'-' {
             neg = self.input[start] == b'-';
@@ -387,7 +387,7 @@ impl Tokenizer {
                         overflow = true;
                         0
                     };
-                    i |= (c - b'0') as i64;
+                    i |= (c - b'0') as u64;
                 }
                 c @ b'0' ..= b'7' if octal => {
                     i = if let Some(j) = i.checked_shl(3) {
@@ -396,7 +396,7 @@ impl Tokenizer {
                         overflow = true;
                         0
                     };
-                    i |= (c - b'0') as i64;
+                    i |= (c - b'0') as u64;
                 }
                 c @ b'0' ..= b'9' if decimal => {
                     i = if let Some(j) = i.checked_mul(10) {
@@ -405,7 +405,7 @@ impl Tokenizer {
                         overflow = true;
                         0
                     };
-                    i = if let Some(j) = i.checked_add((c - b'0') as i64) {
+                    i = if let Some(j) = i.checked_add((c - b'0') as u64) {
                         j
                     } else {
                         overflow = true;
@@ -419,7 +419,7 @@ impl Tokenizer {
                         overflow = true;
                         0
                     };
-                    i |= (c - b'0') as i64;
+                    i |= (c - b'0') as u64;
                 }
                 c @ b'a' ..= b'f' if hex => {
                     i = if let Some(j) = i.checked_shl(4) {
@@ -428,7 +428,7 @@ impl Tokenizer {
                         overflow = true;
                         0
                     };
-                    i |= (c - b'a' + 10) as i64;
+                    i |= (c - b'a' + 10) as u64;
                 }
                 c @ b'A' ..= b'F' if hex => {
                     i = if let Some(j) = i.checked_shl(4) {
@@ -437,12 +437,19 @@ impl Tokenizer {
                         overflow = true;
                         0
                     };
-                    i |= (c - b'A' + 10) as i64;
+                    i |= (c - b'A' + 10) as u64;
                 }
                 _ => return None,
             }
             start += 1;
         }
+
+        let i = if neg {
+            overflow = i >> 63 == 1;
+            -(i as i64)
+        } else {
+            i as i64
+        };
 
         if overflow {
             let int = unsafe { std::str::from_utf8_unchecked(&self.input[o_start..end]) };
@@ -450,9 +457,6 @@ impl Tokenizer {
             return Some(0);
         }
 
-        if neg {
-            i = -i;
-        }
         Some(i)
     }
 }
