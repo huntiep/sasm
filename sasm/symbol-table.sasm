@@ -1,5 +1,6 @@
 (import (malloc alloc))
 (import (malloc realloc))
+(import (malloc free))
 (import (sasm-strings *))
 
 (defvar SYMBOL-TABLE 0)
@@ -9,6 +10,16 @@
 (module init
     (subi x2 x2 8)
     (sd x2 x1)
+
+    (addi x10 x0 256)
+    (addi x5 x0 24)
+    (mul x10 x10 x5)
+    (jal x1 alloc)
+    (la x5 SYMBOL-TABLE)
+    (sd x5 x10)
+    (la x5 SYMBOL-TABLE.capacity)
+    (addi x6 x0 256)
+    (sd x5 x6)
 
     (la x10 Register::x0::str)
     (addi x11 x0 (len Register::x0::str))
@@ -293,168 +304,173 @@
     (jalr x0 x1)
 )
 
-;; x10 - symbol
-(module symbol->string
-    (subi x10 x10 1)
-    (la x6 SYMBOL-TABLE.len)
-    (ld x6 x6)
-    (bge x10 x6 null)
-    (slli x10 x10 4)
+;; Args:
+;;  x10 - string pointer
+;;  x11 - string length
+;;  x12 - Option<symbol> -- internal use
+;; Ret:
+;;  x10 - symbol
+(module string->symbol
+    (la x5 SYMBOL-TABLE.capacity)
+    (ld x6 x5)
+    (srai x30 x6 1)
+    (la x29 SYMBOL-TABLE.len)
+    (ld x31 x29)
+    (bge x31 x30 resize)
+    (add x12 x0 x0)
+    resize-done
+
+    (define FNV_OFFSET 14695981039346656037)
+    (define FNV_PRIME 1099511628211)
+    ;; FNV_OFFSET
+    (lui x5 -213206)
+    (addi x5 x5 -795)
+    (slli x5 x5 32)
+    (lui x6 -507358)
+    (addi x6 x6 805)
+    (add x5 x5 x6)
+    ;; FNV_PRIME
+    (addi x6 x0 1)
+    (slli x6 x6 40)
+    (addi x6 x6 435)
+
+    (add x30 x0 x10)
+    (add x31 x10 x11)
+    hash
+        (lb x29 x30)
+        (and x5 x5 x29)
+        (mul x5 x5 x6)
+        (addi x30 x30 1)
+        (bne x30 x31 hash)
+    (la x31 SYMBOL-TABLE.capacity)
+    (ld x31 x31)
+    (subi x6 x31 1)
+    (and x5 x5 x6)
+    (addi x7 x0 24)
+    (mul x5 x5 x7)
+
     (la x6 SYMBOL-TABLE)
     (ld x6 x6)
-    (add x6 x6 x10)
-    (ld x10 x6)
-    (ld x11 (+ x6 8))
-    (jalr x0 x1)
-    null
-    (add x10 x0 x0)
-    (jalr x0 x1)
-)
-
-;; x10 - string pointer
-;; x11 - string length
-(module string->symbol
-    (subi x2 x2 24)
-    (sd x2 x10)
-    (sd (+ x2 8) x11)
-    (sd (+ x2 16) x1)
-
-    (la x20 SYMBOL-TABLE)
-    (ld x20 x20)
-    (la x21 SYMBOL-TABLE.len)
-    (ld x21 x21)
-    (beq x21 x0 add-string)
-    loop
-        (ld x12 x20)
-        (ld x13 (+ x20 8))
-        (jal x1 str-eq)
-        (bne x10 x0 symbol-found)
-
-        (addi x20 x20 16)
-        (subi x21 x21 1)
-        (ld x10 x2)
-        (ld x11 (+ x2 8))
-        (bne x21 x0 loop)
-    (ld x1 (+ x2 16))
-    (jal x0 add-string)
-
-    symbol-found
-        (la x6 SYMBOL-TABLE.len)
-        (ld x6 x6)
-        (sub x10 x6 x21)
-        (addi x10 x10 1)
-        (ld x1 (+ x2 16))
-        (addi x2 x2 24)
+    (add x5 x6 x5)
+    (addi x30 x0 24)
+    (mul x31 x31 x30)
+    (add x6 x31 x5)
+    (add x30 x0 x10)
+    lookup
+        (ld x28 x5)
+        (beq x28 x0 set-entry)
+        (ld x29 (+ x5 8))
+        (bne x29 x11 lookup-continue)
+    lookup-strcmp
+        (lb x7 x28)
+        (lb x31 x30)
+        (bne x7 x31 lookup-continue)
+        (addi x28 x28 1)
+        (addi x30 x30 1)
+        (subi x29 x29 1)
+        (bne x29 x0 lookup-strcmp)
+        (jal x0 lookup-found)
+    lookup-continue
+        (add x30 x0 x10)
+        (addi x5 x5 24)
+        (beq x5 x6 lookup-loopback)
+        (jal x0 lookup)
+    lookup-loopback
+        (la x5 SYMBOL-TABLE)
+        (ld x5 x5)
+        (jal x0 lookup)
+    lookup-found
+        (ld x10 (+ x5 16))
         (jalr x0 x1)
 
-    add-string
-        (la x6 SYMBOL-TABLE.len)
-        (ld x7 x6)
-        (beq x7 x0 allocate)
-        (la x28 SYMBOL-TABLE.capacity)
-        (ld x29 x28)
-        (beq x7 x29 resize)
-        (ld x10 x2)
-        (ld x11 (+ x2 8))
-        (ld x1 (+ x2 16))
-        (addi x2 x2 24)
-
-        add-string-after
-            (sd x20 x10)
-            (sd (+ x20 8) x11)
-            (la x6 SYMBOL-TABLE.len)
-            (ld x10 x6)
-            (addi x10 x10 1)
-            (sd x6 x10)
-            (jalr x0 x1)
-
-    allocate
-        (addi x10 x0 16)
-        (jal x1 alloc)
-        (la x6 SYMBOL-TABLE)
-        (sd x6 x10)
-        (add x20 x0 x10)
-        (la x6 SYMBOL-TABLE.capacity)
-        (addi x7 x0 1)
-        (sd x6 x7)
-
-        (ld x10 x2)
-        (ld x11 (+ x2 8))
-        (ld x1 (+ x2 16))
-        (addi x2 x2 24)
-        (jal x0 add-string-after)
+    set-entry
+        (la x29 SYMBOL-TABLE.len)
+        (ld x31 x29)
+        (addi x31 x31 1)
+        (sd x29 x31)
+        (bne x12 x0 set-entry-len)
+        (add x12 x0 x31)
+    set-entry-len
+        (sd x5 x10)
+        (sd (+ x5 8) x11)
+        (sd (+ x5 16) x12)
+        (add x10 x0 x12)
+        (jalr x0 x1)
 
     resize
-        (slli x11 x7 5)
-        (la x10 SYMBOL-TABLE)
-        (ld x10 x10)
-        (jal x1 realloc)
+        (subi x2 x2 48)
+        (sd x2 x1)
+        (sd (+ x2 8) x10)
+        (sd (+ x2 16) x11)
+        (sd (+ x2 24) x6)
+
+        (slli x10 x6 1)
+        (sd x5 x10)
+        (jal x1 alloc)
+        (beq x10 x0 resize-err)
+
+        (la x5 SYMBOL-TABLE.len)
+        (sd x5 x0)
         (la x6 SYMBOL-TABLE)
+        (ld x5 x6)
         (sd x6 x10)
-        (add x20 x0 x10)
-        (la x6 SYMBOL-TABLE.capacity)
-        (ld x7 x6)
-        (slli x7 x7 1)
-        (sd x6 x7)
-        (la x6 SYMBOL-TABLE.len)
-        (ld x6 x6)
-        (slli x6 x6 4)
-        (add x20 x20 x6)
+        (sd (+ x2 40) x5)
+        (ld x6 (+ x2 24))
 
-        (ld x10 x2)
-        (ld x11 (+ x2 8))
-        (ld x1 (+ x2 16))
-        (addi x2 x2 24)
-        (jal x0 add-string-after)
+        resize-loop
+            (beq x5 x6 resize-loop-after)
+            (ld x10 x5)
+            (addi x5 x5 24)
+            (beq x10 x0 resize-loop)
+            (ld x11 (- x5 16))
+            (ld x12 (- x5 8))
+            (sd (+ x2 32) x5)
+            (jal x1 resize-done)
+            (ld x6 (+ x2 24))
+            (ld x5 (+ x2 32))
+            (jal x0 resize-loop)
+        resize-loop-after
+
+        (ld x10 (+ x2 40))
+        (jal x1 free)
+
+        (ld x1 x2)
+        (ld x10 (+ x2 8))
+        (ld x11 (+ x2 16))
+        (addi x2 x2 48)
+        (add x12 x0 x0)
+        (jal x0 resize-done)
+    resize-err
+    ;; TODO
 )
 
-;; Args
-;;   x10 - str1
-;;   x11 - str1.len
-;;   x12 - str2
-;;   x13 - str2.len
-(module str-eq
-    (bne x11 x13 false)
-    loop
-        (beq x11 x0 true)
-        (subi x11 x11 1)
-        (lb x6 x10)
-        (addi x10 x10 1)
-        (lb x7 x12)
-        (addi x12 x12 1)
-        (beq x6 x7 loop)
-    false
-        (add x10 x0 x0)
-        (jalr x0 x1)
-    true
-        (addi x10 x0 1)
-        (jalr x0 x1)
-)
-
-(module print
-    (import (syscalls *))
-
-    (la x6 SYMBOL-TABLE)
+;; Args:
+;;  x10 - symbol
+;; Ret:
+;;  x10 - string
+;;  x11 - string.len
+(module symbol->string
+    (la x5 SYMBOL-TABLE.len)
+    (ld x5 x5)
+    (blt x5 x10 err)
+    (la x5 SYMBOL-TABLE)
+    (ld x5 x5)
+    (la x6 SYMBOL-TABLE.capacity)
     (ld x6 x6)
-    (la x7 SYMBOL-TABLE.len)
-    (ld x7 x7)
-    (subi x2 x2 8)
-    (addi x31 x0 #'\n')
-    (sb x2 x31)
+    (addi x7 x0 24)
+    (mul x6 x6 x7)
+    (add x6 x5 x6)
     loop
-        (addi x10 x0 STDOUT)
-        (ld x11 x6)
-        (ld x12 (+ x6 8))
-        (addi x17 x0 SYS_WRITE)
-        (ecall)
-        (addi x10 x0 STDOUT)
-        (add x11 x0 x2)
-        (addi x12 x0 1)
-        (addi x17 x0 SYS_WRITE)
-        (ecall)
-        (addi x6 x6 16)
-        (subi x7 x7 1)
-        (bne x7 x0 loop)
-    (addi x2 x2 8)
+        (beq x5 x6 err)
+        (addi x5 x5 24)
+        (ld x7 (- x5 8))
+        (bne x7 x10 loop)
+    (ld x10 (- x5 24))
+    (ld x10 (- x5 16))
+    (jalr x0 x1)
+
+    err
+    ;; TODO
+    (add x10 x0 x0)
     (jalr x0 x1)
 )

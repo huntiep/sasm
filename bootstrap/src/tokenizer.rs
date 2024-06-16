@@ -499,4 +499,25 @@ mod tests {
             _ => false,
         }
     }
+
+    fn li(x: u64) {
+        let u = ((x >> 32) + 1) as u32;
+        let l = x as u32;
+        let u20 = ((u + 0x800) >> 12) as i32 | (0xfff << 20);
+        let u12 = if (u >> 11) & 1 == 1 {
+            (u & 0xfff) as i16 | 0xf000u16 as i16
+        } else {
+            (u & 0xfff) as i16
+        };
+        let l20 = ((l + 0x800) >> 12) as i32 | (0xfff << 20);
+        let l12 = if (l >> 11) & 1 == 1 {
+            (l & 0xfff) as i16 | 0xf000u16 as i16
+        } else {
+            (l & 0xfff) as i16
+        };
+        println!("lui {}", u20);
+        println!("addi {}", u12);
+        println!("lui {}", l20);
+        println!("addi {}", l12);
+    }
 }

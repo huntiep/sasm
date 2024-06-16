@@ -30,6 +30,7 @@ start
     ;; Init malloc
     (jal x1 (malloc init))
     ;;(include! "test-malloc.sasm")
+    ;;(jal x1 (symbol-table init))
     ;;(include! "test-symbol-table.sasm")
 
     (add x20 x0 x2)
@@ -298,6 +299,8 @@ start
 ;; Args:
 ;;  x10 - input: String
 ;;  x11 - len: input.len : pointer to end of input
+;;  x12 - filename: String
+;;  x13 - filename.len
 ;; Locals:
 ;;  x20 - tokens: ArrayBuf<(Token, len, start)>
 ;;  x21 - capacity: tokens.capacity : pointer to end of tokens capacity
@@ -1694,7 +1697,7 @@ start
     (add x5 x0 x0)
     (sub x6 x23 x22)
     ;; -0x200000
-    (lui x7 0xFFE00)
+    (lui x7 -512)
     (add x6 x6 x7)
     (blt x6 x0 check-data-len)
     (addi x5 x0 1)
@@ -1709,7 +1712,7 @@ start
     check-data-len
     (sub x6 x25 x24)
     ;; -0x200000
-    (lui x7 0xFFE00)
+    (lui x7 -512)
     (add x6 x6 x7)
     (blt x6 x0 after-check)
     (addi x5 x0 1)

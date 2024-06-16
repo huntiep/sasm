@@ -1,5 +1,6 @@
 (define s1 "abcd")
 (define s2 "123")
+(define s1 "abcd")
 
 (la x10 s1)
 (addi x11 x0 (len s1))
@@ -33,10 +34,11 @@
 
 ;; exit(0)
 (add x10 x0 x0)
-(addi x17 x0 93)
+(addi x17 x0 SYS_EXIT)
 (ecall)
 
 test-symbol-table-error
+;; exit(1)
 (addi x10 x0 1)
-(addi x17 x0 93)
+(addi x17 x0 SYS_EXIT)
 (ecall)

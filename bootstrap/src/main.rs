@@ -958,8 +958,8 @@ impl Asm {
         } else if symbol == symbols::LUI || symbol == symbols::AUIPC {
             let rd = self.unwrap_register();
             let mut imm = self.unwrap_imm();
-            if (imm as u64) > 0xF_FF_FF {
-                self.print_err(&format!("Immediate `{}` out of range [-2048, 2048)", imm), "");
+            if imm >= 524288 || imm < -524288 {
+                self.print_err(&format!("Immediate `{}` out of range [-524288, 524288)", imm), "");
                 imm = 0
             }
             ((imm as i32 as u32) << 12) | (rd << 7) | if symbol == symbols::LUI { 0b0110111 } else { 0b0010111 }
