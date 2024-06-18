@@ -186,10 +186,7 @@ impl Tokenizer {
                         }
                         self.print_err(start, line, &format!("Invalid string escape code `\\{}`", c as char));
                     }
-                    None => {
-                        self.print_err(start, line, "Unclosed string beginning");
-                        return None;
-                    },
+                    None => break,
                 }
             } else if c == b'\n' {
                 self.newline();
@@ -220,8 +217,8 @@ impl Tokenizer {
                 return Some(Token::Pound);
             }
         } else {
-            self.print_err(start, line, "Expected array or character literal, got EOF");
-            return None;
+            self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
+            return Some(Token::Pound);
         }
         self._next();
         let ch = match self._next() {
@@ -231,7 +228,7 @@ impl Tokenizer {
                 b'\0'
             }
             None => {
-                self.print_err(start, line, "Unclosed char literal");
+                self.print_err(start, line, "Unclosed character literal");
                 return None;
             },
             Some(b'\n') => {
@@ -240,7 +237,7 @@ impl Tokenizer {
             }
             Some(b'\\') => match self._next() {
                 None => {
-                    self.print_err(start, line, "Unclosed char literal");
+                    self.print_err(start, line, "Unclosed character literal");
                     return None;
                 }
                 Some(b'\\') => b'\\',
@@ -280,14 +277,17 @@ impl Tokenizer {
         let mut nesting = 0;
         while let Some(c) = self._next() {
             if c == b'|' && Some(b'#') == self._peek() {
+                self._next();
                 if nesting == 0 {
-                    self._next();
                     return;
                 } else {
                     nesting -= 1;
                 }
             } else if c == b'#' && Some(b'|') == self._peek() {
+                self._next();
                 nesting += 1;
+            } else if c == b'\n' {
+                self.newline();
             }
         }
         self.print_err(start, line, "Unclosed block comment");

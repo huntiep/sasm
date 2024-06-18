@@ -125,8 +125,7 @@ fn read_file<P: AsRef<std::path::Path>>(path: P) -> Result<Vec<u8>, String> {
     }
 }
 
-fn assemble(tokenizer: Tokenizer) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>)
-{
+fn assemble(tokenizer: Tokenizer) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>) {
     let mut root = Module::new(0, None, true);
     let mut path: PathBuf = tokenizer.filename.clone().into();
     path.pop();
@@ -315,7 +314,7 @@ impl Asm {
                     continue;
                 }
                 None => {
-                    eprint!("Unknown module/label `{}`.", self.path_to_string(&path));
+                    eprintln!("Unknown module/label `{}`.", self.path_to_string(&path));
                     self.err = true;
                     continue;
                 }
@@ -356,7 +355,8 @@ impl Asm {
     fn add_label(&mut self, label: usize) {
         if self.get_mod().labels.contains_key(&label) {
             self.print_err(&format!("Duplicate label `{}`", get_value(label)), "");
-        } else if self.in_scope(label) {
+        //} else if self.in_scope(label) {
+        } else if self.get_mod().children.contains_key(&label) {
             self.print_err(&format!("Label `{}` conflicts with module/definition", get_value(label)), "");
         } else {
             let m = self.get_mod();
@@ -1438,6 +1438,7 @@ impl Asm {
                     b'\\' => v.push(b'\\'),
                     b'"' => v.push(b'"'),
                     b'0' => v.push(b'\0'),
+                    // TODO
                     c @ _ => panic!("Invariant broken in Asm::get_string `{:?}`", c),
                 }
             } else {
