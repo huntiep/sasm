@@ -270,10 +270,9 @@ start
         (addi x5 x5 16)
         (sd (+ x21 24) x5)
         (defcon msg "Unexpected closing parenthesis")
-        (la x10 msg)
-        (addi x11 x0 (len msg))
-        (add x12 x0 x0)
-        (add x13 x0 x0)
+        (la x5 msg)
+        (addi x6 x0 (len msg))
+        (add x7 x0 x0)
         (jal x1 (assemble print-err))
         (jal x0 asm-loop)
     asm-after
@@ -731,6 +730,7 @@ start
             (defcon unclosed-msg "Unclosed block comment")
             (la x5 unclosed-msg)
             (addi x6 x0 (len unclosed-msg))
+            (add x7 x0 x0)
             (jal x1 print-err)
             (jal x0 loop)
         nested
@@ -793,6 +793,7 @@ start
             (defcon unclosed-msg "Unclosed character literal")
             (la x5 unclosed-msg)
             (addi x6 x0 (len unclosed-msg))
+            (add x7 x0 x0)
             (jal x1 print-err)
             (jal x0 (^ loop))
         newline
@@ -809,6 +810,7 @@ start
         literal-close-err
             (la x5 unclosed-msg)
             (addi x6 x0 (len unclosed-msg))
+            (add x7 x0 x0)
             (jal x1 print-err)
             (addi x30 x0 (Token Char))
             (jal x0 push-token)
@@ -816,6 +818,7 @@ start
             (defcon empty-msg "Empty character literal")
             (la x5 empty-msg)
             (addi x6 x0 (len empty-msg))
+            (add x7 x0 x0)
             (jal x1 print-err)
             (jal x0 (^ loop))
         literal-escape
@@ -829,6 +832,7 @@ start
             (addi x6 x5 22)
             (sb x6 x28)
             (addi x6 x0 (len escape-msg))
+            (add x7 x0 x0)
             (jal x1 print-err)
             (add x31 x0 x0)
             (jal x0 literal-close)
@@ -881,12 +885,14 @@ start
             (sb (- x5 2) x28)
             (subi x5 x5 (len invalid-msg))
             (addi x6 x0 (len invalid-msg))
+            (add x7 x0 x0)
             (jal x1 print-err)
             (jal x0 loop)
         err
             (defcon unclosed-str-msg "Unclosed string beginning")
             (la x5 unclosed-str-msg)
             (addi x6 x0 (len unclosed-str-msg))
+            (add x7 x0 x0)
             (jal x1 print-err)
 
             (ld x5 (+ x21 80))
@@ -1087,10 +1093,12 @@ start
     ;; ARGS:
     ;;  x5  - msg
     ;;  x6  - msg.len
+    ;;  x7  - note
+    ;;  x8  - note.len
     ;;  x14 - start
     ;;  x15 - line
     (module print-err
-        (subi x2 x2 56)
+        (subi x2 x2 72)
         (sd x2 x1)
         (sd (+ x2 8) x10)
         (sd (+ x2 16) x11)
@@ -1161,6 +1169,20 @@ start
         (addi x12 x0 (len period))
         (ecall)
 
+        ;; note?
+        (ld x11 (+ x2 56))
+        (beq x11 x0 after-note)
+        (ld x12 (+ x2 64))
+        (addi x10 x0 STDERR)
+        (ecall)
+
+        (addi x10 x0 STDERR)
+        (la x11 period)
+        (addi x11 x11 1)
+        (addi x12 x0 1)
+        (ecall)
+
+        after-note
         ;; line+1
         (addi x10 x0 STDERR)
         (addi x11 x15 1)
@@ -1199,7 +1221,7 @@ start
         (ld x15 (+ x2 32))
         (ld x30 (+ x2 40))
         (ld x31 (+ x2 48))
-        (addi x2 x2 56)
+        (addi x2 x2 72)
 
         (addi x5 x5 1)
         (sd (+ x21 120) x5)
@@ -1296,6 +1318,22 @@ start
         (subi x5 x10 (Token Symbol))
         (bne x5 x0 expr-value-err)
 
+        (subi x5 x11 Instr::include!)
+        (beq x5 x0 handle-include)
+        (subi x5 x11 Instr::define)
+        (beq x5 x0 handle-define)
+        (addi x10 x0 1)
+        (subi x5 x11 Instr::defcon)
+        (beq x5 x0 handle-defcon/var)
+        (add x10 x0 x0)
+        (subi x5 x11 Instr::defvar)
+        (beq x5 x0 handle-defcon/var)
+        (subi x5 x11 Instr::module)
+        (beq x5 x0 handle-module)
+        (subi x5 x11 Instr::import)
+        (beq x5 x0 handle-import)
+        (jal x0 handle-opcode)
+
     rparen
         (ld x5 (+ x21 24))
         (subi x5 x5 1)
@@ -1311,35 +1349,54 @@ start
         (jalr x0 x1)
     empty
         (defcon empty-err "Empty expression ending")
-        (la x10 empty-err)
-        (addi x11 x0 (len empty-err))
-        (add x12 x0 x0)
+        (la x5 empty-err)
+        (addi x6 x0 (len empty-err))
+        (add x7 x0 x0)
         (jal x1 print-err)
         (jal x0 loop)
     opening-err
         (defcon opening-err "Unexpected opening parenthesis")
-        (la x10 opening-err)
-        (addi x11 x0 (len opening-err))
-        (add x12 x0 x0)
+        (la x5 opening-err)
+        (addi x6 x0 (len opening-err))
+        (add x7 x0 x0)
         (jal x1 print-err)
         (jal x0 done)
     expr-value-err
         (defcon expr-value-err "Unexpected value in expression")
-        (la x10 expr-value-err)
-        (addi x11 x0 (len expr-value-err))
-        (add x12 x0 x0)
+        (la x5 expr-value-err)
+        (addi x6 x0 (len expr-value-err))
+        (add x7 x0 x0)
         (jal x1 print-err)
         (jal x1 skip-opcode)
         (jal x0 loop)
     expr-err
         (defcon expr-err "Expression must be a label or an S-Expression")
-        (la x10 expr-err)
-        (addi x11 x0 (len expr-err))
-        (add x12 x0 x0)
+        (la x5 expr-err)
+        (addi x6 x0 (len expr-err))
+        (add x7 x0 x0)
         (jal x1 print-err)
         (jal x0 loop)
 
     (module add-label
+    )
+
+    (module handle-include
+    )
+
+    (module handle-define
+    )
+
+    ;; x10 - defcon?
+    (module handle-defcon/var
+    )
+
+    (module handle-module
+    )
+
+    (module handle-import
+    )
+
+    (module handle-opcode
     )
 
     (module skip-opcode
@@ -1349,12 +1406,22 @@ start
     )
 
     ;; ARGS:
-    ;;  x10 - msg
-    ;;  x11 - msg.len
-    ;;  x12 - note
-    ;;  x13 - note.len
+    ;;  x5 - msg
+    ;;  x6 - msg.len
+    ;;  x7 - note
+    ;;  x8 - note.len
     (module print-err
-        (jalr x0 x1)
+        (ld x14 (+ x21 24))
+        (subi x14 x14 16)
+        (ld x15 (+ x21 32))
+        (subi x14 x14 x15)
+        (srai x15 x14 1)
+        (add x14 x14 x15)
+        (ld x15 (+ x21 56))
+        (add x14 x14 x15)
+        (ld x15 x14)
+        (ld x14 (+ x15 8))
+        (jal x0 (tokenize print-err)
     )
 )
 
