@@ -158,7 +158,7 @@ impl Tokenizer {
         idx - self.lines.last().unwrap_or(&(0, 0)).1
     }
 
-    fn print_err(&mut self, start: usize, line: usize, msg: &str) {
+    pub fn print_err(&mut self, start: usize, line: usize, msg: &str, note: &str) {
         let i = self.idx_in_line(start);
         let mut e = start;
         while e < self.input.len() && self.input[e] != b'\n' {
@@ -168,7 +168,11 @@ impl Tokenizer {
             e += 1;
         }
         let l = String::from_utf8_lossy(&self.input[start..e]);
-        eprintln!("{} at {}:{}:{}.\n{}: {}", msg, self.filename, line+1, i+1, line+1, l);
+        if note.is_empty() {
+            eprintln!("{} at {}:{}:{}.\n{}: {}", msg, self.filename, line+1, i+1, line+1, l);
+        } else {
+            eprintln!("{} at {}:{}:{}.\n{}\n{}: {}", msg, self.filename, line+1, i+1, note, line+1, l);
+        }
         self.err = true;
     }
 
@@ -184,7 +188,7 @@ impl Tokenizer {
                         if c == b'\n' {
                             self.newline();
                         }
-                        self.print_err(start, line, &format!("Invalid string escape code `\\{}`", c as char));
+                        self.print_err(start, line, &format!("Invalid string escape code `\\{}`", c as char), "");
                     }
                     None => break,
                 }
@@ -195,7 +199,7 @@ impl Tokenizer {
                 return Some(Token::String(start+1, self.position - 1));
             }
         }
-        self.print_err(start, line, "Unclosed string beginning");
+        self.print_err(start, line, "Unclosed string beginning", "");
         if line < self.lines.len() {
             self.position = self.lines[line].1;
             self.lines.truncate(line + 1);
@@ -223,12 +227,12 @@ impl Tokenizer {
         self._next();
         let ch = match self._next() {
             Some(b'\'') => {
-                self.print_err(start, line, "Empty character literal");
+                self.print_err(start, line, "Empty character literal", "");
                 self.position -= 1;
                 b'\0'
             }
             None => {
-                self.print_err(start, line, "Unclosed character literal");
+                self.print_err(start, line, "Unclosed character literal", "");
                 return None;
             },
             Some(b'\n') => {
@@ -237,7 +241,7 @@ impl Tokenizer {
             }
             Some(b'\\') => match self._next() {
                 None => {
-                    self.print_err(start, line, "Unclosed character literal");
+                    self.print_err(start, line, "Unclosed character literal", "");
                     return None;
                 }
                 Some(b'\\') => b'\\',
@@ -250,7 +254,7 @@ impl Tokenizer {
                     if c == b'\n' {
                         self.newline();
                     }
-                    self.print_err(start, line, &format!("Bad escape sequence `\\{}` in char literal", c as char));
+                    self.print_err(start, line, &format!("Bad escape sequence `\\{}` in char literal", c as char), "");
                     b'\0'
                 }
             }
@@ -258,7 +262,7 @@ impl Tokenizer {
         };
 
         if Some(b'\'') != self._next() {
-            self.print_err(start, line, "Unclosed char literal");
+            self.print_err(start, line, "Unclosed char literal", "");
         }
         self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
         Some(Token::Char(ch))
@@ -290,7 +294,7 @@ impl Tokenizer {
                 self.newline();
             }
         }
-        self.print_err(start, line, "Unclosed block comment");
+        self.print_err(start, line, "Unclosed block comment", "");
     }
 
     fn parse_identifier(&mut self, start: usize, line: usize) -> Option<Token> {
@@ -453,7 +457,7 @@ impl Tokenizer {
 
         if overflow {
             let int = unsafe { std::str::from_utf8_unchecked(&self.input[o_start..end]) };
-            self.print_err(o_start, line, &format!("Integer `{}` does not fit in i64", int));
+            self.print_err(o_start, line, &format!("Integer `{}` does not fit in i64", int), "");
             return Some(0);
         }
 

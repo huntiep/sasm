@@ -135,7 +135,6 @@ fn assemble(tokenizer: Tokenizer) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, us
 
     let mut asm = Asm {
         tokenizer: tokenizer,
-        err: false,
         modules: vec![root, Module::new(1, Some(0), true)],
         module: 1,
         data: Vec::new(),
@@ -161,7 +160,6 @@ fn assemble(tokenizer: Tokenizer) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, us
 
 struct Asm {
     tokenizer: Tokenizer,
-    err: bool,
     modules: Vec<Module>,
     module: usize,
     data: Vec<u8>,
@@ -289,7 +287,7 @@ impl Asm {
         let mut refs = Vec::new();
         for module in &mut self.modules[1..] {
             let (j, err) = module.finish();
-            self.err |= err;
+            self.tokenizer.err |= err;
             for (l, i, ty) in j {
                 refs.push((module.id, vec![l], i + (code.len() * 4), ty));
             }
@@ -310,12 +308,12 @@ impl Asm {
                 Some(Unit::Module(m)) => self.modules[m].location,
                 Some(_) => {
                     eprintln!("Expected module at path `{}`.", self.path_to_string(&path));
-                    self.err = true;
+                    self.tokenizer.err = true;
                     continue;
                 }
                 None => {
                     eprintln!("Unknown module/label `{}`.", self.path_to_string(&path));
-                    self.err = true;
+                    self.tokenizer.err = true;
                     continue;
                 }
             };
@@ -325,7 +323,7 @@ impl Asm {
                 JumpType::Branch => {
                     if imm < -4096 || imm > 4095 {
                         eprintln!("Branch to `{}` too far.", self.path_to_string(&path));
-                        self.err = true;
+                        self.tokenizer.err = true;
                     }
                     let imm = imm as u32;
                     let imm1 = (imm & 0x1e) | ((imm >> 11) & 1);
@@ -335,7 +333,7 @@ impl Asm {
                 JumpType::Jump => {
                     if imm < -1048576 || imm > 1048575 {
                         eprintln!("Jump to `{}` too far.", self.path_to_string(&path));
-                        self.err = true;
+                        self.tokenizer.err = true;
                     }
                     let imm = imm as u32;
                     let imm2 = ((imm & 0x10_00_00) >> 1) | (((imm >> 1) & 0x3_FF) << 9) | (((imm >> 11) & 1) << 8) | ((imm >> 12) & 0xFF);
@@ -344,7 +342,7 @@ impl Asm {
             }
         }
 
-        let err = self.err || self.tokenizer.err || code.len() == 0;
+        let err = self.tokenizer.err || code.len() == 0;
         if code.len() == 0 {
             eprintln!("Error: No instructions found, cannot build executable.");
         }
@@ -491,7 +489,7 @@ impl Asm {
                             }
                             m = &self.modules[m_id];
                         } else {
-                            self.err = true;
+                            self.tokenizer.err = true;
                             return;
                         }
                     } else if { file_path.set_extension("sasm"); !file_path.is_file() } {
@@ -509,7 +507,7 @@ impl Asm {
                             }
                             m = &self.modules[m_id];
                         } else {
-                            self.err = true;
+                            self.tokenizer.err = true;
                             return;
                         }
                     }
@@ -603,7 +601,7 @@ impl Asm {
         let mut t = Tokenizer::new(include_input, file_path.display().to_string());
         mem::swap(&mut self.tokenizer, &mut t);
         self.assemble();
-        self.err |= self.tokenizer.err;
+        t.err |= self.tokenizer.err;
         mem::swap(&mut self.tokenizer, &mut t);
 
         self.module = old_id;
@@ -688,7 +686,7 @@ impl Asm {
         let mut t = Tokenizer::new(include_input, filename);
         mem::swap(&mut self.tokenizer, &mut t);
         self.assemble();
-        self.err |= self.tokenizer.err;
+        t.err |= self.tokenizer.err;
         mem::swap(&mut self.tokenizer, &mut t);
     }
 
@@ -1383,7 +1381,7 @@ impl Asm {
                 Some((_, Unit::Module(id))) => m = &self.modules[*id],
                 None => {
                     if m.filep {
-                        self.err = true;
+                        self.tokenizer.err = true;
                         return None;
                     } else {
                         let p = m.parent.unwrap();
@@ -1450,39 +1448,14 @@ impl Asm {
     }
 
     fn print_warn(&mut self, msg: &str) {
-        let err = self.err;
+        let err = self.tokenizer.err;
         self.print_err(msg, "");
-        self.err = err;
+        self.tokenizer.err = err;
     }
 
     fn print_err(&mut self, msg: &str, note: &str) {
-        let (line, i, filename) = self.info();
-        let (s, mut e) = if self.tokenizer.lines.is_empty() {
-            (0, None)
-        } else if line >= self.tokenizer.lines.len() {
-            (self.tokenizer.lines[line-1].1, None)
-        } else {
-            let (s, e) = self.tokenizer.lines[line];
-            (s, Some(e))
-        };
-
-        if e.is_none() {
-            let mut i = s;
-            while i < self.tokenizer.input.len() && self.tokenizer.input[i] != b'\n' {
-                i += 1;
-            }
-            if i < self.tokenizer.input.len() {
-                i += 1;
-            }
-            e = Some(i);
-        }
-        if note.is_empty() {
-            eprintln!("{} at {}:{}:{}.\n{}: {}", msg, filename, line+1, i+1, line+1, String::from_utf8_lossy(&self.tokenizer.input[s..e.unwrap()]));
-        } else {
-            eprintln!("{} at {}:{}:{}.\n{}\n{}: {}", msg, filename, line+1, i+1, note, line+1, String::from_utf8_lossy(&self.tokenizer.input[s..e.unwrap()]));
-        }
-
-        self.err = true;
+        let t = self.tokenizer.token_info[self.tokenizer.token_position-1];
+        self.tokenizer.print_err(t.start, t.line, msg, note)
     }
 
     fn info(&self) -> (usize, usize, String) {
