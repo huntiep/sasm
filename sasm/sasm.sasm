@@ -25,6 +25,7 @@
 (import (malloc free))
 (import symbol-table)
 (import (symbol-table string->symbol))
+(import (symbol-table symbol->string))
 
 start
     ;; Init malloc
@@ -581,117 +582,90 @@ start
     )
 
     (module newline
-        (ld x12 (+ x21 80))
         (ld x13 (+ x21 88))
         (ld x14 (+ x21 96))
-        newline-after-resize
-            (ld x12 (+ x21 80))
-            (beq x13 x14 newline-resize)
-            (ld x5 x21)
-            (beq x12 x13 newline-first)
-            (ld x5 (- x13 8))
-        newline-first
-            (sd x13 x5)
-            (sd (+ x13 8) x10)
-            (addi x13 x13 16)
-            (sd (+ x21 88) x13)
-            (jalr x0 x1)
+        (bne x13 x14 after-resize)
+        (subi x2 x2 24)
+        (sd x2 x1)
+        (sd (+ x2 8) x10)
+        (sd (+ x2 16) x11)
+        (addi x10 x21 80)
+        (jal x1 resize-array)
+        (add x13 x0 x10)
+        (ld x1 x2)
+        (ld x10 (+ x2 8))
+        (ld x11 (+ x2 16))
+        (addi x2 x2 24)
 
-        newline-resize
-            (subi x2 x2 24)
-            (sd x2 x10)
-            (sd (+ x2 8) x11)
-            (sub x11 x14 x12)
-            (slli x11 x11 1)
-            (sd (+ x2 16) x11)
-            (add x10 x0 x12)
-            (jal x1 realloc)
-            (add x12 x0 x10)
-            (ld x14 (+ x2 16))
-            (srai x13 x14 1)
-            (add x13 x12 x13)
-            (add x14 x12 x14)
-            (sd (+ x21 80) x12)
-            (sd (+ x21 96) x14)
-            (ld x11 (+ x2 8))
-            (ld x10 x2)
-            (addi x2 x2 32)
-            (jal x0 newline)
+        after-resize
+        (ld x12 (+ x21 80))
+        (ld x5 x21)
+        (beq x12 x13 newline-first)
+        (ld x5 (- x13 8))
+        newline-first
+        (beq x5 x10 ret)
+        (sd x13 x5)
+        (sd (+ x13 8) x10)
+        (addi x13 x13 16)
+        (sd (+ x21 88) x13)
+        ret
+        (jalr x0 x1)
     )
 
+    ;; ARGS:
+    ;;  x10 - input
+    ;;  x11 - input.end
+    ;;  x14 - start
+    ;;  x15 - line
+    ;;  x30 - Token value
+    ;;  x31 - Token type
     (module push-token
+        (subi x2 x2 48)
+        (sd x2 x1)
+        (sd (+ x2 8) x10)
+        (sd (+ x2 16) x14)
+        (sd (+ x2 24) x15)
+        (sd (+ x2 32) x30)
+        (sd (+ x2 40) x31)
+
         (ld x5 (+ x21 64))
         (ld x6 (+ x21 72))
-        (beq x5 x6 resize-info)
+        (bne x5 x6 after-resize-info)
+        (addi x10 x21 56)
+        (jal x1 resize-array)
+        (add x5 x0 x10)
+
         after-resize-info
+        (ld x10 (+ x2 8))
+        (ld x14 (+ x2 16))
+        (ld x15 (+ x2 24))
         (sd x5 x14)
-        (sd (+ x5 8) x10)
-        (sd (+ x5 16) x15)
+        (sd (+ x5 8) x15)
+        (sd (+ x5 16) x10)
         (addi x5 x5 24)
         (sd (+ x21 64) x5)
 
         (sd (+ x21 8) x10)
-        (sub x12 x10 x31)
-        (add x10 x0 x30)
-        (add x11 x0 x31)
         (ld x16 (+ x21 40))
         (ld x17 (+ x21 48))
-        (beq x16 x17 resize)
+        (bne x16 x17 after-resize)
+        (addi x10 x21 32)
+        (jal x1 resize-array)
+
         after-resize
-        (sb x16 x10)
-        (sd (+ x16 8) x11)
-        (sw (+ x16 4) x12)
-        (addi x16 x16 16)
-        (sd (+ x21 40) x16)
-        (sd (+ x21 24) x16)
+        (ld x30 (+ x2 32))
+        (ld x31 (+ x2 40))
+        (ld x29 (+ x2 8))
+        (sb x10 x30)
+        (sd (+ x10 8) x31)
+        (add x31 x29 x31)
+        (sw (+ x10 4) x31)
+        (addi x10 x10 16)
+        (sd (+ x21 40) x10)
+        (sd (+ x21 24) x10)
         (ld x1 x2)
-        (addi x2 x2 8)
+        (addi x2 x2 48)
         (jalr x0 x1)
-
-        resize
-            (subi x2 x2 32)
-            (sd x2 x10)
-            (sd (+ x2 8) x11)
-            (sd (+ x2 16) x12)
-            (ld x10 (+ x21 32))
-            (sub x11 x16 x10)
-            (sd x2 x11)
-            (slli x11 x11 2)
-            (jal x1 realloc)
-            (sd (+ x21 32) x10)
-            (add x13 x0 x10)
-            (ld x10 (+ x2 32))
-            (slli x11 x10 2)
-            (add x16 x10 x13)
-            (add x17 x11 x13)
-            (sd (+ x21 48) x17)
-            (ld x10 x2)
-            (ld x11 (+ x2 8))
-            (ld x12 (+ x2 16))
-            (addi x2 x2 32)
-            (jal x0 after-resize)
-
-        resize-info
-            (subi x2 x2 32)
-            (sd x2 x10)
-            (sd (+ x2 8) x30)
-            (sd (+ x2 16) x31)
-            (ld x10 (+ x21 56))
-            (sub x11 x5 x10)
-            (sd (+ x2 24) x11)
-            (slli x11 x11 1)
-            (jal x1 realloc)
-            (sd (+ x21 56) x10)
-            (ld x11 (+ x2 24))
-            (add x5 x11 x10)
-            (slli x11 x11 1)
-            (add x11 x11 x10)
-            (sd (+ x21 72) x11)
-            (ld x10 x2)
-            (ld x30 (+ x2 8))
-            (ld x31 (+ x2 16))
-            (addi x2 x2 32)
-            (jal x0 after-resize-info)
     )
 
     (module comment
@@ -1263,6 +1237,259 @@ start
 )
 
 ;; ARGS:
+;;  x10 - Ptr<vec>
+;; RET:
+;;  x10 vec.end
+(module resize-array
+    (subi x2 x2 16)
+    (sd x2 x1)
+    (add x13 x0 x10)
+    (ld x10 x13)
+    (ld x11 (+ x13 16))
+    (sub x11 x11 x10)
+    (slli x11 x11 1)
+    (sd (+ x2 8) x11)
+    (jal x1 realloc)
+    (sd x13 x10)
+    (ld x11 (+ x2 8))
+    (add x12 x11 x10)
+    (sd (+ x13 16) x12)
+    (srai x11 x11 1)
+    (add x10 x10 x11)
+    (sd (+ x13 8) x10)
+    (ld x1 x2)
+    (addi x2 x2 16)
+    (jalr x0 x1)
+)
+
+;; ARGS:
+;;  x10 - to-ptr
+;;  x11 - from-ptr
+;;  x12 - from.len
+;; RET:
+;;  x10 - to-ptr+from.len
+(module strdup
+    (add x12 x11 x12)
+    loop
+        (lb x5 x11)
+        (sb x10 x5)
+        (addi x10 x10 1)
+        (addi x11 x11 1)
+        (bne x11 x12 loop)
+    (jalr x0 x1)
+)
+
+;; ARGS:
+;;  x10 - a-ptr
+;;  x11 - a.len
+;;  x12 - b-ptr
+;;  x13 - b.len
+;; RET:
+;;  x10 - bool
+(module str-eq?
+    (bne x11 x13 false)
+    (add x11 x10 x11)
+    loop
+        (lb x5 x10)
+        (lb x6 x12)
+        (bne x5 x6 false)
+        (addi x10 x10 1)
+        (addi x12 x12 1)
+        (bne x10 x11 loop)
+    (addi x10 x10 1)
+    (jalr x0 x1)
+
+    false
+    (add x10 x0 x0)
+    (jalr x0 x1)
+)
+
+(module symbol-map
+    ;; ARGS:
+    ;;  x10 - *SymbolMap
+    ;;  x11 - key: Symbol
+    ;; RET:
+    ;;  x10 - usize
+    ;;  x11 - found?
+    (module get
+        (subi x2 x2 8)
+        (sd x2 x1)
+        (jal x1 entry)
+        (ld x1 x2)
+        (addi x2 x2 8)
+        (ld x10 x5)
+        (beq x10 x0 none)
+        (ld x10 (+ x5 8))
+        (addi x11 x0 1)
+        (jalr x0 x1)
+
+        none
+        (add x11 x0 x0)
+        (jalr x0 x1)
+    )
+
+    ;; ARGS:
+    ;;  x10 - *SymbolMap
+    ;;  x11 - key: Symbol
+    ;; RET:
+    ;;  x5  - *Entry
+    (module entry
+        (ld x5 x10)
+        (ld x6 (+ x10 16))
+        (sub x7 x6 x5)
+        (srai x7 x7 4)
+        (subi x7 x7 1)
+        (and x7 x11 x7)
+        (slli x7 x7 4)
+        (add x5 x5 x7)
+
+        loop
+            (beq x5 x6 loopback)
+            (ld x7 x5)
+            (beq x7 x0 done)
+            (addi x5 x5 16)
+            (bne x7 x11 loop)
+        done
+        (jalr x0 x1)
+
+        loopback
+            (lb x5 x10)
+            (jal x0 loop)
+    )
+
+    ;; ARGS:
+    ;;  x10 - *SymbolMap
+    ;;  x11 - key: Symbol
+    ;;  x12 - value: usize
+    ;;  x13 - overwrite?
+    ;; RET:
+    ;;  x10 - exist?
+    (module insert
+        (subi x2 x2 8)
+        (sd x2 x1)
+        (jal x1 entry)
+        (ld x1 x2)
+        (addi x2 x2 8)
+        (ld x6 x5)
+        (bne x6 x5 exists)
+        (sd x5 x11)
+        (sd (+ x5 8) x12)
+        (add x10 x0 x0)
+        (jalr x0 x1)
+
+        exists
+            (bne x13 x0 ret)
+            (sd (+ x5 8) x12)
+        ret
+            (addi x10 x0 1)
+            (jalr x0 x1)
+    )
+)
+
+;; Module {
+;;  0 parent: Ptr<Module>,
+;;  8 children.start: Map<Symbol, (bool, Unit)>,
+;;  16 children
+;;  24 children.capacity
+;;  32 filep/location: usize,
+;;  40 path: String
+;;  48 path.len
+;;  56 code.start: Vec<u8>
+;;  64 code
+;;  72 code.capacity
+;;  80 labels.start: Map<Symbol, usize>
+;;  88 labels
+;;  96 labels.capacity
+;;  104 jumps.start: Vec<(Symbol, usize, JumpType)>
+;;  112 jumps
+;;  120 jumps.capacity
+;;  128 refs.start: Vec<(Path, usize, JumpType)>
+;;  136 refs
+;;  144 refs.capacity
+;;  152 rewrites.start: Vec<(usize, usize, bool)>
+;;  160 rewrites
+;;  168 rewrites.capacity
+;; } 176
+;;
+;; ARGS:
+;;  x10 - parent
+;;  x11 - filep
+;; RET:
+;;  x10 - *Module
+(module new-module
+    (subi x2 x2 24)
+    (sd x2 x1)
+    (sd (+ x2 8) x10)
+    (sd (+ x2 16) x11)
+    (addi x10 x0 176)
+    (jal x1 alloc)
+    (ld x11 (+ x2 8))
+    (ld x12 (+ x2 16))
+    (sd x10 x11)
+    (sd (+ x10 32) x12)
+    (sd (+ x2 8) x10)
+    ;; children
+    ;; TODO: size
+    (addi x10 x0 256)
+    (jal x1 malloc)
+    (ld x11 (+ x2 8))
+    (sd (+ x11 8) x10)
+    (sd (+ x11 16) x10)
+    (addi x10 x10 256)
+    (sd (+ x11 24) x10)
+    ;; code
+    (addi x10 x0 64)
+    (jal x1 malloc)
+    (ld x11 (+ x2 8))
+    (sd (+ x11 56) x10)
+    (sd (+ x11 64) x10)
+    (addi x10 x10 64)
+    (sd (+ x11 72) x10)
+    ;; labels
+    (addi x10 x0 256)
+    (jal x1 malloc)
+    (ld x11 (+ x2 8))
+    (sd (+ x11 80) x10)
+    (sd (+ x11 88) x10)
+    (addi x10 x10 256)
+    (sd (+ x11 96) x10)
+    ;; jumps
+    (addi x10 x0 128)
+    (jal x1 malloc)
+    (ld x11 (+ x2 8))
+    (sd (+ x11 104) x10)
+    (sd (+ x11 112) x10)
+    (addi x10 x10 128)
+    (sd (+ x11 120) x10)
+    ;; refs
+    ;; TODO: size
+    (addi x10 x0 256)
+    (jal x1 malloc)
+    (ld x11 (+ x2 8))
+    (sd (+ x11 128) x10)
+    (sd (+ x11 136) x10)
+    (addi x10 x10 256)
+    (sd (+ x11 144) x10)
+    ;; rewrites
+    (addi x10 x0 128)
+    (jal x1 malloc)
+    (ld x11 (+ x2 8))
+    (sd (+ x11 152) x10)
+    (sd (+ x11 160) x10)
+    (addi x10 x10 128)
+    (sd (+ x11 168) x10)
+
+    (add x10 x0 x11)
+    (ld x1 x2)
+    (addi x2 x2 24)
+    (jalr x0 x1)
+)
+
+;; TODO
+(module new-tokenizer
+)
+
+;; ARGS:
 ;;  x20 - Asm {
 ;;  0   - modules.start: Vec<Module>
 ;;  8   - modules
@@ -1301,7 +1528,9 @@ start
 (module assemble
     (subi x2 x2 8)
     (sd x2 x1)
-    loop
+    ;; Doing this makes working with add-label easier.
+    (jal x1 loop)
+    (module loop
         (jal x1 tokenize)
         (beq x10 x0 done)
         (subi x5 x10 (Token Symbol))
@@ -1334,53 +1563,223 @@ start
         (beq x5 x0 handle-import)
         (jal x0 handle-opcode)
 
-    rparen
-        (ld x5 (+ x21 24))
-        (subi x5 x5 1)
-        (sd (+ x21 24) x5)
-        (ld x1 x2)
-        (addi x2 x2 8)
-        (addi x10 x0 1)
-        (jalr x0 x1)
-    done
-        (ld x1 x2)
-        (addi x2 x2 8)
-        (add x10 x0 x0)
-        (jalr x0 x1)
-    empty
-        (defcon empty-err "Empty expression ending")
-        (la x5 empty-err)
-        (addi x6 x0 (len empty-err))
-        (add x7 x0 x0)
-        (jal x1 print-err)
-        (jal x0 loop)
-    opening-err
-        (defcon opening-err "Unexpected opening parenthesis")
-        (la x5 opening-err)
-        (addi x6 x0 (len opening-err))
-        (add x7 x0 x0)
-        (jal x1 print-err)
-        (jal x0 done)
-    expr-value-err
-        (defcon expr-value-err "Unexpected value in expression")
-        (la x5 expr-value-err)
-        (addi x6 x0 (len expr-value-err))
-        (add x7 x0 x0)
-        (jal x1 print-err)
-        (jal x1 skip-opcode)
-        (jal x0 loop)
-    expr-err
-        (defcon expr-err "Expression must be a label or an S-Expression")
-        (la x5 expr-err)
-        (addi x6 x0 (len expr-err))
-        (add x7 x0 x0)
-        (jal x1 print-err)
-        (jal x0 loop)
+        rparen
+            (ld x5 (+ x21 24))
+            (subi x5 x5 1)
+            (sd (+ x21 24) x5)
+            (ld x1 x2)
+            (addi x2 x2 8)
+            (addi x10 x0 1)
+            (jalr x0 x1)
+        done
+            (ld x1 x2)
+            (addi x2 x2 8)
+            (add x10 x0 x0)
+            (jalr x0 x1)
+        empty
+            (defcon empty-err "Empty expression ending")
+            (la x5 empty-err)
+            (addi x6 x0 (len empty-err))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 loop)
+        opening-err
+            (defcon opening-err "Unexpected opening parenthesis")
+            (la x5 opening-err)
+            (addi x6 x0 (len opening-err))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 done)
+        expr-value-err
+            (defcon expr-value-err "Unexpected value in expression")
+            (la x5 expr-value-err)
+            (addi x6 x0 (len expr-value-err))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x1 skip-opcode)
+            (jal x0 loop)
+        expr-err
+            (defcon expr-err "Expression must be a label or an S-Expression")
+            (la x5 expr-err)
+            (addi x6 x0 (len expr-err))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 loop)
+    )
 
+    ;; ARGS:
+    ;;  x11: symbol
     (module add-label
+        (subi x2 x2 16)
+        (sd x2 x1)
+        (sd (+ x2 8) x11)
+
+        (ld x10 (+ x20 24))
+        (addi x10 x10 80)
+        (jal x1 (symbol-map entry))
+        (ld x6 x5)
+        (bne x6 x0 duplicate-err)
+        (ld x10 (+ x20 24))
+        (addi x10 x10 8)
+        (ld x11 (+ x2 8))
+        (jal x1 (symbol-map entry))
+        (ld x6 x5)
+        (bne x6 x0 conflict-err)
+        (ld x10 (+ x20 24))
+        (addi x12 x10 56)
+        (addi x10 x10 80)
+        (ld x11 (+ x2 8))
+        (ld x5 x12)
+        (ld x6 (+ x12 8))
+        (sub x12 x6 x5)
+        (add x13 x0 x0)
+        (jal x1 (symbol-map insert))
+        ret
+        (ld x1 x2)
+        (addi x2 x2 16)
+        (jalr x0 x1)
+
+        duplicate-err
+            (defcon duplicate "Duplicate label `")
+            (subi x2 x2 32)
+            (add x10 x0 x11)
+            (jal x1 symbol->string)
+            (sd x2 x10)
+            (sd (+ x2 8) x11)
+            (addi x10 x11 (len duplicate))
+            (addi x10 x10 1)
+            (sd (+ x2 24) x10)
+            (jal x1 malloc)
+            (sd (+ x2 16) x10)
+            (la x11 duplicate)
+            (addi x12 x0 (len duplicate))
+            (jal x1 strdup)
+            (ld x11 x2)
+            (ld x12 (+ x2 8))
+            (jal x1 strdup)
+            (addi x7 x0 #'`')
+            (sb x10 x7)
+            (ld x5 (+ x2 16))
+            (ld x6 (+ x2 24))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (addi x2 x2 32)
+            (jal x0 ret)
+        conflict-err
+            (defcon conflict "Label `")
+            (defcon conflict2 "` conflicts with module/definition")
+            (subi x2 x2 32)
+            (add x10 x0 x11)
+            (jal x1 symbol->string)
+            (sd x2 x10)
+            (sd (+ x2 8) x11)
+            (addi x10 x11 (len conflict))
+            (addi x10 x10 (len conflict2))
+            (sd (+ x2 24) x10)
+            (jal x1 malloc)
+            (sd (+ x2 16) x10)
+            (la x11 conflict)
+            (addi x12 x0 (len conflict))
+            (jal x1 strdup)
+            (ld x11 x2)
+            (ld x12 (+ x2 8))
+            (jal x1 strdup)
+            (la x11 conflict2)
+            (addi x12 x0 (len conflict2))
+            (ld x5 (+ x2 16))
+            (ld x6 (+ x2 24))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (addi x2 x2 32)
+            (jal x0 ret)
     )
 
     (module handle-include
+        (jal x1 tokenize)
+        (beq x10 x0 eof)
+        (subi x5 x10 (Token RightParen))
+        (beq x5 x0 parenthesis-err)
+        (subi x5 x10 (Token String))
+        (bne x5 x0 string-err)
+        (subi x2 x2 16)
+        (sd x2 x11)
+        (sd (+ x2 8) x12)
+        (add x10 x0 x11)
+        (add x11 x0 x12)
+        (ld x12 (+ x21 104))
+        (ld x13 (+ x21 112))
+        (jal x1 str-eq?)
+        (beq x10 x0 recursive-err)
+
+        (jal x1 tokenize)
+        (beq x10 x0 eof)
+        (subi x5 x10 (Token String))
+        (beq x5 x0 multiple-err)
+        (subi x5 x10 (Token RightParen))
+        (bne x5 x0 expr-err)
+        (ld x10 x2)
+        (ld x11 (+ x2 8))
+        (add x11 x10 x11)
+        (jal x1 read-file)
+        (beq x12 x0 read-err)
+        (ld x12 x2)
+        (ld x12 (+ x2 8))
+        (jal x1 new-tokenizer)
+        (sd x2 x21)
+        (add x21 x0 x10)
+        (jal x1 loop)
+        (ld x5 (+ x21 120))
+        (ld x21 x2)
+        (ld x6 (+ x21 120))
+        (or x6 x5 x6)
+        (sd (+ x21 120) x6)
+        (jal x0 loop)
+
+        eof
+            (defcon eof-msg "Unexpected EOF in `include!`")
+            (la x5 eof-msg)
+            (addi x6 x0 (len eof-msg))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 loop)
+        parenthesis-err
+            (defcon parenthesis-msg "Unexpected parenthesis")
+            (la x5 parenthesis-msg)
+            (addi x6 x0 (len parenthesis-msg))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 loop)
+        string-err
+            (defcon string-msg "`include!` file must be a string")
+            (la x5 string-msg)
+            (addi x6 x0 (len string-msg))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 skip-opcode)
+        recursive-err
+        multiple-err
+            (defcon multiple-msg "Each file needs its own include statement")
+            (la x5 multiple-msg)
+            (addi x6 x0 (len multiple-msg))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 skip-opcode)
+        expr-err
+            (defcon expr-msg "Unexpected expression in include statement")
+            (la x5 expr-msg)
+            (addi x6 x0 (len expr-msg))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 skip-opcode)
+        read-err
+            (defcon read-msg "Error executing `include!`")
+            (la x5 read-msg)
+            (addi x6 x0 (len read-msg))
+            ;; TODO: add \t?
+            (add x7 x0 x10)
+            (add x8 x0 x11)
+            (jal x1 print-err)
+            (jal x0 loop)
     )
 
     (module handle-define
@@ -1396,6 +1795,7 @@ start
     (module handle-import
     )
 
+    ;; x11 - Symbol
     (module handle-opcode
     )
 
@@ -1414,14 +1814,14 @@ start
         (ld x14 (+ x21 24))
         (subi x14 x14 16)
         (ld x15 (+ x21 32))
-        (subi x14 x14 x15)
+        (sub x14 x14 x15)
         (srai x15 x14 1)
         (add x14 x14 x15)
         (ld x15 (+ x21 56))
         (add x14 x14 x15)
         (ld x15 x14)
         (ld x14 (+ x15 8))
-        (jal x0 (tokenize print-err)
+        (jal x0 (tokenize print-err))
     )
 )
 
