@@ -89,7 +89,7 @@
 (define Instr::div 44)
 (defcon Instr::rem::str "rem")
 (define Instr::rem 45)
-(define LAST_R 45)
+(define LAST_R 46)
 
 (defcon Instr::addi::str "addi")
 (define Instr::addi 46)
@@ -111,7 +111,7 @@
 (define Instr::slti 54)
 (defcon Instr::sltiu::str "sltiu")
 (define Instr::sltiu 55)
-(define LAST_I 45)
+(define LAST_I 56)
 
 (defcon Instr::lb::str "lb")
 (define Instr::lb 56)
@@ -126,8 +126,8 @@
 (defcon Instr::lhu::str "lhu")
 (define Instr::lhu 61)
 (defcon Instr::lwu::str "lwu")
-(define Instr::lwu 44)
-(define LAST_I2 62)
+(define Instr::lwu 62)
+(define LAST_I2 63)
 
 (defcon Instr::sb::str "sb")
 (define Instr::sb 63)
@@ -137,7 +137,7 @@
 (define Instr::sw 65)
 (defcon Instr::sd::str "sd")
 (define Instr::sd 66)
-(define LAST_S 66)
+(define LAST_S 67)
 
 (defcon Instr::beq::str "beq")
 (define Instr::beq 67)
@@ -151,7 +151,7 @@
 (define Instr::bltu 71)
 (defcon Instr::bgeu::str "bgeu")
 (define Instr::bgeu 72)
-(define LAST_B 72)
+(define LAST_B 73)
 
 (defcon Instr::jal::str "jal")
 (define Instr::jal 73)
