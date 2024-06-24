@@ -69,7 +69,7 @@ fn main() {
             exit(1);
         }
     };
-    let tokenizer = Tokenizer::new(input, input_file);
+    let tokenizer = Box::new(Tokenizer::new(input, input_file));
     let (program, data, rodata, rewrites) = assemble(tokenizer);
     let e = if debug {
         elf::Elf::new_debug(program, data, rodata, rewrites)
@@ -125,7 +125,7 @@ fn read_file<P: AsRef<std::path::Path>>(path: P) -> Result<Vec<u8>, String> {
     }
 }
 
-fn assemble(tokenizer: Tokenizer) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>) {
+fn assemble(tokenizer: Box<Tokenizer>) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>) {
     let mut root = Module::new(0, None, true);
     let mut path: PathBuf = tokenizer.filename.clone().into();
     path.pop();
@@ -159,7 +159,7 @@ fn assemble(tokenizer: Tokenizer) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, us
 
 
 struct Asm {
-    tokenizer: Tokenizer,
+    tokenizer: Box<Tokenizer>,
     modules: Vec<Module>,
     module: usize,
     data: Vec<u8>,
@@ -598,7 +598,7 @@ impl Asm {
             }
         };
 
-        let mut t = Tokenizer::new(include_input, file_path.display().to_string());
+        let mut t = Box::new(Tokenizer::new(include_input, file_path.display().to_string()));
         mem::swap(&mut self.tokenizer, &mut t);
         loop {
             self.assemble();
@@ -690,7 +690,7 @@ impl Asm {
             Err(e) => return self.print_err("Error executing `include!`", &format!("\t{}", e)),
         };
 
-        let mut t = Tokenizer::new(include_input, filename);
+        let mut t = Box::new(Tokenizer::new(include_input, filename));
         mem::swap(&mut self.tokenizer, &mut t);
         loop {
             self.assemble();

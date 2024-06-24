@@ -477,6 +477,12 @@ mod tests {
     use super::*;
 
     #[test]
+    fn size() {
+        assert_eq!(std::mem::size_of::<Token>(), 16);
+        assert_eq!(std::mem::size_of::<Option<Token>>(), 16);
+    }
+
+    #[test]
     fn intp() {
         assert_eq!(Tokenizer::new(b"123".to_vec(), String::new()).next().unwrap(), Token::Integer(123));
         assert_eq!(Tokenizer::new(b"-123".to_vec(), String::new()).next().unwrap(), Token::Integer(-123));
