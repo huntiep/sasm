@@ -3,6 +3,7 @@ use tokenizer::get_symbol;
 pub const X31: usize = 32;
 pub const ADD: usize = 33;
 pub const SUB: usize = 34;
+pub const SRA: usize = 40;
 pub const MUL: usize = 43;
 pub const DIV: usize = 44;
 pub const REM: usize = 45;

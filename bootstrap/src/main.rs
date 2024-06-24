@@ -427,7 +427,7 @@ impl Asm {
                 return;
             } else if p == symbols::STAR {
                 for (k, (importp, v)) in m.children.clone() {
-                    if self.in_scope(k) {
+                    if !importp && self.in_scope(k) {
                         self.print_err(&format!("`{}` is already defined in this scope from import statement", get_value(k)), "");
                     } else if !importp {
                         self.get_mod().children.insert(k, (true, v));
@@ -600,7 +600,14 @@ impl Asm {
 
         let mut t = Tokenizer::new(include_input, file_path.display().to_string());
         mem::swap(&mut self.tokenizer, &mut t);
-        self.assemble();
+        loop {
+            self.assemble();
+            if self.peek().is_none() {
+                break;
+            }
+            self.tokenizer.token_position += 1;
+            self.print_err("Unexpected closing parenthesis", "");
+        }
         t.err |= self.tokenizer.err;
         mem::swap(&mut self.tokenizer, &mut t);
 
@@ -685,7 +692,14 @@ impl Asm {
 
         let mut t = Tokenizer::new(include_input, filename);
         mem::swap(&mut self.tokenizer, &mut t);
-        self.assemble();
+        loop {
+            self.assemble();
+            if self.peek().is_none() {
+                break;
+            }
+            self.tokenizer.token_position += 1;
+            self.print_err("Unexpected closing parenthesis", "");
+        }
         t.err |= self.tokenizer.err;
         mem::swap(&mut self.tokenizer, &mut t);
     }
@@ -848,7 +862,7 @@ impl Asm {
         // R instructions
         } else if symbol <= symbols::LAST_R {
             let funct7 = match symbol {
-                symbols::SUB | symbols::SRAI => 0x20,
+                symbols::SUB | symbols::SRA => 0x20,
                 symbols::MUL | symbols::DIV | symbols::REM => 0x01,
                 _ => 0x00,
             };
@@ -892,6 +906,10 @@ impl Asm {
                 None => return self.print_err("Unexpected EOF in instruction", ""),
             };
 
+            if path.is_empty() {
+                self.print_err("Expected non-empty path as argument to `la` instruction", "");
+                return self.skip_opcode();
+            }
             if path.len() == 1 && path[0] <= symbols::X31 {
                 self.print_err("Expected path as argument to `la` instruction, got register", "");
                 return self.skip_opcode();
@@ -952,6 +970,9 @@ impl Asm {
         } else if symbol == symbols::JALR {
             let rd = self.unwrap_register();
             let (rs, imm) = self.unwrap_offset();
+            if imm >= 2048 || imm < -2048 {
+                self.print_err(&format!("Offset `{}` out of range [-2048, 2048)", imm), "");
+            }
             ((imm as i32 as u32) << 20) | (rs << 15) | (rd << 7) | 0b1100111
         } else if symbol == symbols::LUI || symbol == symbols::AUIPC {
             let rd = self.unwrap_register();
@@ -1038,9 +1059,6 @@ impl Asm {
                     _ => {
                         self.backtrack();
                         let path = self.unwrap_path();
-                        if path.is_empty() {
-                            return 0;
-                        }
                         return match self.follow_path(&path) {
                             Some(Unit::Constant(i)) => i,
                             Some(_) => {
@@ -1058,11 +1076,16 @@ impl Asm {
                 let len = match self.next() {
                     Some(Token::Symbol(_)) | Some(Token::LParen) => {
                         let path = self.unwrap_path();
-                        match self.follow_path(&path) {
-                            Some(Unit::Bytes(_, l, _)) => l as i64,
-                            Some(_) | None => {
-                                self.print_err(&format!("Global `{}` not defined/imported at use", self.path_to_string(&path)), "");
-                                0
+                        if path.is_empty() {
+                            self.print_err("Empty path in `len` expression", "");
+                            0
+                        } else {
+                            match self.follow_path(&path) {
+                                Some(Unit::Bytes(_, l, _)) => l as i64,
+                                Some(_) | None => {
+                                    self.print_err(&format!("Global `{}` not defined/imported at use", self.path_to_string(&path)), "");
+                                    0
+                                }
                             }
                         }
                     },
@@ -1423,7 +1446,8 @@ impl Asm {
         out
     }
 
-    fn get_string(&mut self, start: usize, end: usize) -> Vec<u8> {
+    fn get_string(&mut self, start: usize, end: u32) -> Vec<u8> {
+        let end = start + end as usize;
         let mut v = Vec::with_capacity(end-start);
         let mut i = start;
         while i < end {
@@ -1436,8 +1460,7 @@ impl Asm {
                     b'\\' => v.push(b'\\'),
                     b'"' => v.push(b'"'),
                     b'0' => v.push(b'\0'),
-                    // TODO
-                    c @ _ => panic!("Invariant broken in Asm::get_string `{:?}`", c),
+                    c @ _ => v.push(c),
                 }
             } else {
                 v.push(self.tokenizer.input[i]);

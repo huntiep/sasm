@@ -34,7 +34,7 @@ pub enum Token {
     Symbol(usize),
     Integer(i64),
     Char(u8),
-    String(usize, usize),
+    String(usize, u32),
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -160,6 +160,13 @@ impl Tokenizer {
 
     pub fn print_err(&mut self, start: usize, line: usize, msg: &str, note: &str) {
         let i = self.idx_in_line(start);
+        let s = if self.lines.is_empty() {
+            0
+        } else if line >= self.lines.len() {
+            self.lines.last().unwrap().1
+        } else {
+            self.lines[line].1
+        };
         let mut e = start;
         while e < self.input.len() && self.input[e] != b'\n' {
             e += 1;
@@ -167,7 +174,7 @@ impl Tokenizer {
         if e < self.input.len() {
             e += 1;
         }
-        let l = String::from_utf8_lossy(&self.input[start..e]);
+        let l = String::from_utf8_lossy(&self.input[s..e]);
         if note.is_empty() {
             eprintln!("{} at {}:{}:{}.\n{}: {}", msg, self.filename, line+1, i+1, line+1, l);
         } else {
@@ -196,7 +203,7 @@ impl Tokenizer {
                 self.newline();
             } else if c == b'"' {
                 self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
-                return Some(Token::String(start+1, self.position - 1));
+                return Some(Token::String(start+1, (self.position - start) as u32));
             }
         }
         self.print_err(start, line, "Unclosed string beginning", "");
@@ -205,7 +212,7 @@ impl Tokenizer {
             self.lines.truncate(line + 1);
         }
         self.token_info.push(TokenInfo { start: start-1, end: self.position, line: line });
-        Some(Token::String(start, self.position - 1))
+        Some(Token::String(start, (self.position - 1 - start) as u32))
     }
 
     fn parse_literal(&mut self) -> Option<Token> {
