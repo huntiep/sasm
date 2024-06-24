@@ -1,0 +1,378 @@
+(import (malloc calloc))
+(import (malloc realloc))
+(import (malloc free))
+
+(module symbol-map16
+    ;; ARGS:
+    ;;  x10 - *SymbolMap
+    ;;  x11 - key: Symbol
+    ;; RET:
+    ;;  x10 - value - usize
+    ;;  x11 - found?
+    (module get
+        (subi x2 x2 8)
+        (sd x2 x1)
+        (jal x1 entry)
+        (ld x1 x2)
+        (addi x2 x2 8)
+        (ld x10 x5)
+        (beq x10 x0 none)
+        (ld x10 (+ x5 8))
+        (addi x11 x0 1)
+        (jalr x0 x1)
+
+        none
+        (add x11 x0 x0)
+        (jalr x0 x1)
+    )
+
+    ;; ARGS:
+    ;;  x10 - *SymbolMap
+    ;;  x11 - key: Symbol
+    ;; RET:
+    ;;  x5  - *Entry
+    (module entry
+        (ld x6 (+ x10 16))
+        (subi x7 x7 1)
+        (and x7 x11 x7)
+        (slli x7 x7 4)
+        (ld x5 x10)
+        (add x5 x5 x7)
+
+        loop
+            (beq x5 x6 loopback)
+            (ld x7 x5)
+            (beq x7 x0 done)
+            (addi x5 x5 24)
+            (bne x7 x11 loop)
+        done
+        (jalr x0 x1)
+
+        loopback
+            (ld x5 x10)
+            (jal x0 loop)
+    )
+
+    ;; ARGS:
+    ;;  x10 - *SymbolMap
+    ;;  x11 - key: Symbol
+    ;;  x12 - value1: usize
+    ;;  x13 - overwrite?
+    ;; RET:
+    ;;  x10 - exist?
+    (module insert
+        (ld x5 (+ x10 8))
+        (ld x6 (+ x10 16))
+        (slli x5 x5 1)
+        (bge x5 x6 resize)
+        after-resize
+        (subi x2 x2 8)
+        (sd x2 x1)
+        (jal x1 entry)
+        (ld x1 x2)
+        (addi x2 x2 8)
+        (ld x6 x5)
+        (bne x6 x0 exists)
+        (sd x5 x11)
+        (sd (+ x5 8) x12)
+        (add x10 x0 x0)
+        (jalr x0 x1)
+
+        exists
+            (bne x13 x0 ret)
+            (sd (+ x5 8) x12)
+        ret
+            (addi x10 x0 1)
+            (jalr x0 x1)
+
+        resize
+            (subi x2 x2 48)
+            (sd x2 x1)
+            (sd (+ x2 8) x10)
+            (sd (+ x2 16) x11)
+            (sd (+ x2 24) x12)
+            (sd (+ x2 32) x13)
+            (slli x5 x6 1)
+            (slli x10 x10 5)
+            (sd (+ x2 40) x10)
+            (jal x1 calloc)
+            (ld x11 (+ x2 40))
+            (add x11 x11 x10)
+            (ld x5 (+ x2 8))
+            (ld x6 (+ x5 16))
+            (ld x5 x5)
+            (slli x6 x6 4)
+            (add x6 x6 x5)
+            (ld x7 (+ x2 40))
+            (subi x7 x7 1)
+
+            loop
+                (beq x5 x6 resize-done)
+                (ld x8 x5)
+                (addi x5 x5 24)
+                (beq x8 x0 loop)
+                (and x9 x8 x7)
+                (slli x9 x9 4)
+                (add x9 x9 x10)
+                add
+                (ld x28 x9)
+                (bne x28 x0 next-slot)
+                (sd x9 x8)
+                (ld x8 (- x5 16))
+                (sd (+ x9 8) x8)
+                (ld x8 (- x5 8))
+                (sd (+ x9 16) x8)
+                (jal x0 loop)
+            next-slot
+                (addi x9 x9 24)
+                (bne x9 x11 add)
+                (add x9 x0 x10)
+                (jal x0 add)
+        resize-done
+            (ld x5 (+ x2 8))
+            (ld x6 x5)
+            (sd x5 x10)
+            (addi x7 x7 1)
+            (sd (+ x5 16) x7)
+            (add x10 x0 x6)
+            (jal x1 free)
+            (ld x1 x2)
+            (ld x10 (+ x2 8))
+            (ld x11 (+ x2 16))
+            (ld x12 (+ x2 24))
+            (ld x13 (+ x2 32))
+            (addi x2 x2 48)
+            (jal x0 after-resize)
+    )
+)
+
+(module symbol-map24
+    ;; ARGS:
+    ;;  x10 - *SymbolMap
+    ;;  x11 - key: Symbol
+    ;; RET:
+    ;;  x10 - value1 - usize
+    ;;  x11 - value2 - usize
+    ;;  x12 - found?
+    (module get
+        (subi x2 x2 8)
+        (sd x2 x1)
+        (jal x1 entry)
+        (ld x1 x2)
+        (addi x2 x2 8)
+        (ld x10 x5)
+        (beq x10 x0 none)
+        (ld x10 (+ x5 8))
+        (ld x11 (+ x5 16))
+        (addi x12 x0 1)
+        (jalr x0 x1)
+
+        none
+        (add x12 x0 x0)
+        (jalr x0 x1)
+    )
+
+    ;; ARGS:
+    ;;  x10 - *SymbolMap
+    ;;  x11 - key: Symbol
+    ;; RET:
+    ;;  x5  - *Entry
+    (module entry
+        (ld x6 (+ x10 16))
+        (subi x7 x7 1)
+        (and x7 x11 x7)
+        ;; mul 24
+        (slli x5 x7 3)
+        (slli x7 x7 4)
+        (add x7 x7 x5)
+        (ld x5 x10)
+        (add x5 x5 x7)
+
+        loop
+            (beq x5 x6 loopback)
+            (ld x7 x5)
+            (beq x7 x0 done)
+            (addi x5 x5 24)
+            (bne x7 x11 loop)
+        done
+        (jalr x0 x1)
+
+        loopback
+            (ld x5 x10)
+            (jal x0 loop)
+    )
+
+    ;; ARGS:
+    ;;  x10 - *SymbolMap
+    ;;  x11 - key: Symbol
+    ;;  x12 - value1: usize
+    ;;  x13 - value2: usize
+    ;;  x14 - overwrite?
+    ;; RET:
+    ;;  x10 - exist?
+    (module insert
+        (ld x5 (+ x10 8))
+        (ld x6 (+ x10 16))
+        (slli x5 x5 1)
+        (bge x5 x6 resize)
+        after-resize
+        (subi x2 x2 8)
+        (sd x2 x1)
+        (jal x1 entry)
+        (ld x1 x2)
+        (addi x2 x2 8)
+        (ld x6 x5)
+        (bne x6 x0 exists)
+        (sd x5 x11)
+        (sd (+ x5 8) x12)
+        (sd (+ x5 16) x13)
+        (add x10 x0 x0)
+        (jalr x0 x1)
+
+        exists
+            (bne x14 x0 ret)
+            (sd (+ x5 8) x12)
+            (sd (+ x5 16) x13)
+        ret
+            (addi x10 x0 1)
+            (jalr x0 x1)
+
+        resize
+            (subi x2 x2 56)
+            (sd x2 x1)
+            (sd (+ x2 8) x10)
+            (sd (+ x2 16) x11)
+            (sd (+ x2 24) x12)
+            (sd (+ x2 32) x13)
+            (sd (+ x2 40) x14)
+            ;; mul 48 = 24*2
+            (slli x10 x6 5)
+            (slli x6 x6 4)
+            (add x10 x10 x6)
+            (sd (+ x2 48) x10)
+            (jal x1 calloc)
+            (ld x11 (+ x2 48))
+            (add x11 x11 x10)
+            (ld x5 (+ x2 8))
+            (ld x6 (+ x5 16))
+            (ld x5 x5)
+            ;; mul 24
+            (slli x7 x6 3)
+            (slli x6 x6 4)
+            (add x6 x6 x7)
+            (add x6 x6 x5)
+            (ld x7 (+ x2 40))
+            (subi x7 x7 1)
+
+            loop
+                (beq x5 x6 resize-done)
+                (ld x8 x5)
+                (addi x5 x5 24)
+                (beq x8 x0 loop)
+                (and x9 x8 x7)
+                ;; mul 24
+                (slli x28 x9 3)
+                (slli x9 x9 4)
+                (add x9 x9 x28)
+                (add x9 x9 x10)
+                add
+                (ld x28 x9)
+                (bne x28 x0 next-slot)
+                (sd x9 x8)
+                (ld x8 (- x5 16))
+                (sd (+ x9 8) x8)
+                (ld x8 (- x5 8))
+                (sd (+ x9 16) x8)
+                (jal x0 loop)
+            next-slot
+                (addi x9 x9 24)
+                (bne x9 x11 add)
+                (add x9 x0 x10)
+                (jal x0 add)
+        resize-done
+            (ld x5 (+ x2 8))
+            (ld x6 x5)
+            (sd x5 x10)
+            (addi x7 x7 1)
+            (sd (+ x5 16) x7)
+            (add x10 x0 x6)
+            (jal x1 free)
+            (ld x1 x2)
+            (ld x10 (+ x2 8))
+            (ld x11 (+ x2 16))
+            (ld x12 (+ x2 24))
+            (ld x13 (+ x2 32))
+            (ld x14 (+ x2 40))
+            (addi x2 x2 56)
+            (jal x0 after-resize)
+    )
+)
+
+;; ARGS:
+;;  x10 - to-ptr
+;;  x11 - from-ptr
+;;  x12 - from.len
+;; RET:
+;;  x10 - to-ptr+from.len
+(module strdup
+    (add x12 x11 x12)
+    loop
+        (lb x5 x11)
+        (sb x10 x5)
+        (addi x10 x10 1)
+        (addi x11 x11 1)
+        (bne x11 x12 loop)
+    (jalr x0 x1)
+)
+
+;; ARGS:
+;;  x10 - a-ptr
+;;  x11 - a.len
+;;  x12 - b-ptr
+;;  x13 - b.len
+;; RET:
+;;  x10 - bool
+(module str-eq?
+    (bne x11 x13 false)
+    (add x11 x10 x11)
+    loop
+        (lb x5 x10)
+        (lb x6 x12)
+        (bne x5 x6 false)
+        (addi x10 x10 1)
+        (addi x12 x12 1)
+        (bne x10 x11 loop)
+    (addi x10 x10 1)
+    (jalr x0 x1)
+
+    false
+    (add x10 x0 x0)
+    (jalr x0 x1)
+)
+
+;; ARGS:
+;;  x10 - Ptr<vec>
+;; RET:
+;;  x10 vec.end
+(module resize-array
+    (subi x2 x2 16)
+    (sd x2 x1)
+    (add x13 x0 x10)
+    (ld x10 x13)
+    (ld x11 (+ x13 16))
+    (sub x11 x11 x10)
+    (slli x11 x11 1)
+    (sd (+ x2 8) x11)
+    (jal x1 realloc)
+    (sd x13 x10)
+    (ld x11 (+ x2 8))
+    (add x12 x11 x10)
+    (sd (+ x13 16) x12)
+    (srai x11 x11 1)
+    (add x10 x10 x11)
+    (sd (+ x13 8) x10)
+    (ld x1 x2)
+    (addi x2 x2 16)
+    (jalr x0 x1)
+)
+
