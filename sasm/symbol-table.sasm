@@ -339,7 +339,7 @@
     (add x31 x10 x11)
     hash
         (lbu x29 x30)
-        (and x5 x5 x29)
+        (xor x5 x5 x29)
         (mul x5 x5 x6)
         (addi x30 x30 1)
         (bne x30 x31 hash)
