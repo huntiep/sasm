@@ -99,6 +99,32 @@
             (jalr x0 x1)
 )
 
+;; Allocate and zero memory
+;; ARGS:
+;;  x10 - size in bytes
+;; RET:
+;;  x10 - ptr
+(module calloc
+    (subi x2 x2 16)
+    (sd x2 x1)
+    (sd (+ x2 8) x10)
+    (jal x1 alloc)
+    (add x6 x0 x10)
+    (ld x1 x2)
+    (ld x5 (+ x2 8))
+    (addi x2 x2 16)
+
+    ;; Align(size)
+    (addi x5 x5 Malloc::Alignment)
+    (andi x5 x5 -8)
+    (add x5 x5 x6)
+    zero
+        (sd x6 x0)
+        (addi x6 x6 8)
+        (bne x6 x5 zero)
+    (jalr x0 x1)
+)
+
 ;; x10 - pointer to free
 ;; x6 - temporary
 (module free
