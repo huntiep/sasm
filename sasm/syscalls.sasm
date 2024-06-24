@@ -18,4 +18,5 @@
 (define SYS_WRITE 64)
 (define SYS_EXIT 93)
 (define SYS_BRK 214)
+(define SYS_MUNMAP 215)
 (define SYS_MMAP 222)
