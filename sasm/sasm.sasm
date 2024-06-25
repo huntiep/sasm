@@ -17,6 +17,12 @@
     (define Pound #'#')
 )
 
+(module Unit
+    (define Module 0b01)
+    (define Bytes 0b10)
+    (define Constant 0b11)
+)
+
 (import (sasm-strings *))
 (import (syscalls *))
 (import malloc)
@@ -181,49 +187,17 @@ start
     (ld x11 x2)
     (jal x1 read-file)
     (bne x12 x0 read-err)
-    (add x22 x0 x10)
-    (add x23 x0 x11)
-
-    ;; Tokenizer
-    (addi x10 x0 128)
-    (jal x1 alloc)
-    (add x21 x0 x10)
-    ;; input
-    (sd x21 x22)
-    (sd (+ x21 8) x22)
-    (sd (+ x21 16) x23)
-    (addi x10 x0 128)
-    ;; tokens
-    (addi x10 x0 128)
-    (jal x1 alloc)
-    (sd (+ x21 24) x10)
-    (sd (+ x21 32) x10)
-    (sd (+ x21 40) x10)
-    (addi x10 x10 128)
-    (sd (+ x21 48) x10)
-    ;; token_info
-    (addi x10 x0 192)
-    (jal x1 alloc)
-    (sd (+ x21 56) x10)
-    (sd (+ x21 64) x10)
-    (addi x10 x10 192)
-    (sd (+ x21 72) x10)
-    ;; token_lines
-    (addi x10 x0 128)
-    (jal x1 alloc)
-    (sd (+ x21 80) x10)
-    (sd (+ x21 88) x10)
-    (addi x10 x10 128)
-    (sd (+ x21 96) x10)
     ;; filename
-    (ld x10 x2)
-    (sd (+ x21 104) x10)
-    (subi x11 x0 1)
+    (ld x12 x2)
+    (add x6 x0 x12)
+    (subi x13 x0 1)
     filename-length
-        (lb x5 x10)
-        (addi x11 x11 1)
+        (lb x5 x6)
+        (addi x13 x13 1)
+        (addi x6 x6 1)
         (bne x5 x0 filename-length)
-    (sd (+ x21 112) x11)
+    (jal x1 (Tokenizer new))
+    (add x21 x0 x10)
 
     ;; Assembler
     (addi x10 x0 104)
@@ -1239,7 +1213,7 @@ start
 
 ;; Module {
 ;;  0 parent: Ptr<Module>,
-;;  8 children.start: Map<Symbol, (bool, Unit)>,
+;;  8 children.start: Map<Symbol, (bool, Unit)>, - 24
 ;;  16 children
 ;;  24 children.capacity
 ;;  32 filep/location: usize,
@@ -1248,115 +1222,120 @@ start
 ;;  56 code.start: Vec<u8>
 ;;  64 code
 ;;  72 code.capacity
-;;  80 labels.start: Map<Symbol, usize>
+;;  80 labels.start: Map<Symbol, usize> - 16
 ;;  88 labels
 ;;  96 labels.capacity
-;;  104 jumps.start: Vec<(Symbol, usize, JumpType)>
+;;  104 jumps.start: Vec<(Symbol, usize, JumpType)> - 16
 ;;  112 jumps
 ;;  120 jumps.capacity
-;;  128 refs.start: Vec<(Path, usize, JumpType)>
+;;  128 refs.start: Vec<(Path, usize, JumpType)> - 16
 ;;  136 refs
 ;;  144 refs.capacity
-;;  152 rewrites.start: Vec<(usize, usize, bool)>
+;;  152 rewrites.start: Vec<(usize, (usize << 1) | bool)> - 16
 ;;  160 rewrites
 ;;  168 rewrites.capacity
 ;; } 176
-;;
-;; ARGS:
-;;  x10 - parent
-;;  x11 - filep
-;; RET:
-;;  x10 - *Module
-(module new-module
-    (subi x2 x2 24)
-    (sd x2 x1)
-    (sd (+ x2 8) x10)
-    (sd (+ x2 16) x11)
-    (addi x10 x0 176)
-    (jal x1 alloc)
-    (ld x11 (+ x2 8))
-    (ld x12 (+ x2 16))
-    (sd x10 x11)
-    (sd (+ x10 32) x12)
-    (sd (+ x2 8) x10)
-    ;; children
-    ;; TODO: size
-    (addi x10 x0 256)
-    (jal x1 malloc)
-    (ld x11 (+ x2 8))
-    (sd (+ x11 8) x10)
-    (sd (+ x11 16) x10)
-    (addi x10 x10 256)
-    (sd (+ x11 24) x10)
-    ;; code
-    (addi x10 x0 64)
-    (jal x1 malloc)
-    (ld x11 (+ x2 8))
-    (sd (+ x11 56) x10)
-    (sd (+ x11 64) x10)
-    (addi x10 x10 64)
-    (sd (+ x11 72) x10)
-    ;; labels
-    (addi x10 x0 256)
-    (jal x1 malloc)
-    (ld x11 (+ x2 8))
-    (sd (+ x11 80) x10)
-    (sd (+ x11 88) x10)
-    (addi x10 x10 256)
-    (sd (+ x11 96) x10)
-    ;; jumps
-    (addi x10 x0 128)
-    (jal x1 malloc)
-    (ld x11 (+ x2 8))
-    (sd (+ x11 104) x10)
-    (sd (+ x11 112) x10)
-    (addi x10 x10 128)
-    (sd (+ x11 120) x10)
-    ;; refs
-    ;; TODO: size
-    (addi x10 x0 256)
-    (jal x1 malloc)
-    (ld x11 (+ x2 8))
-    (sd (+ x11 128) x10)
-    (sd (+ x11 136) x10)
-    (addi x10 x10 256)
-    (sd (+ x11 144) x10)
-    ;; rewrites
-    (addi x10 x0 128)
-    (jal x1 malloc)
-    (ld x11 (+ x2 8))
-    (sd (+ x11 152) x10)
-    (sd (+ x11 160) x10)
-    (addi x10 x10 128)
-    (sd (+ x11 168) x10)
+(module Module
+    (define parent 0)
+    (define children 8)
+    (define children.len 16)
+    (define children.capacity 24)
+    (define filep 32)
+    (define location 32)
+    (define path 40)
+    (define path.len 48)
+    (define code.start 56)
+    (define code 64)
+    (define code.capacity 72)
+    (define labels 80)
+    (define labels.len 88)
+    (define labels.capacity 96)
+    (define jumps.start 104)
+    (define jumps 112)
+    (define jumps.capacity 120)
+    (define refs.start 128)
+    (define refs 136)
+    (define refs.capacity 144)
+    (define rewrites.start 152)
+    (define rewrites 160)
+    (define rewrites.capacity 168)
 
-    (add x10 x0 x11)
-    (ld x1 x2)
-    (addi x2 x2 24)
-    (jalr x0 x1)
+    ;; ARGS:
+    ;;  x10 - parent
+    ;;  x11 - filep
+    ;; RET:
+    ;;  x10 - *Module
+    (module module
+        (subi x2 x2 24)
+        (sd x2 x1)
+        (sd (+ x2 8) x10)
+        (sd (+ x2 16) x11)
+        (addi x10 x0 176)
+        (jal x1 alloc)
+        (ld x11 (+ x2 8))
+        (ld x12 (+ x2 16))
+        (sd x10 x11)
+        (sd (+ x10 32) x12)
+        (sd (+ x2 8) x10)
+        ;; children
+        ;; TODO: size
+        (addi x10 x0 256)
+        (jal x1 malloc)
+        (ld x11 (+ x2 8))
+        (sd (+ x11 8) x10)
+        (sd (+ x11 16) x10)
+        (addi x10 x10 256)
+        (sd (+ x11 24) x10)
+        ;; code
+        (addi x10 x0 64)
+        (jal x1 malloc)
+        (ld x11 (+ x2 8))
+        (sd (+ x11 56) x10)
+        (sd (+ x11 64) x10)
+        (addi x10 x10 64)
+        (sd (+ x11 72) x10)
+        ;; labels
+        (addi x10 x0 256)
+        (jal x1 malloc)
+        (ld x11 (+ x2 8))
+        (sd (+ x11 80) x10)
+        (sd (+ x11 88) x10)
+        (addi x10 x10 256)
+        (sd (+ x11 96) x10)
+        ;; jumps
+        (addi x10 x0 128)
+        (jal x1 malloc)
+        (ld x11 (+ x2 8))
+        (sd (+ x11 104) x10)
+        (sd (+ x11 112) x10)
+        (addi x10 x10 128)
+        (sd (+ x11 120) x10)
+        ;; refs
+        ;; TODO: size
+        (addi x10 x0 256)
+        (jal x1 malloc)
+        (ld x11 (+ x2 8))
+        (sd (+ x11 128) x10)
+        (sd (+ x11 136) x10)
+        (addi x10 x10 256)
+        (sd (+ x11 144) x10)
+        ;; rewrites
+        (addi x10 x0 128)
+        (jal x1 malloc)
+        (ld x11 (+ x2 8))
+        (sd (+ x11 152) x10)
+        (sd (+ x11 160) x10)
+        (addi x10 x10 128)
+        (sd (+ x11 168) x10)
+
+        (add x10 x0 x11)
+        (ld x1 x2)
+        (addi x2 x2 24)
+        (jalr x0 x1)
+    )
 )
 
-;; TODO
-(module new-tokenizer
-)
-
-;; ARGS:
-;;  x20 - Asm {
-;;  0   - modules.start: Vec<Module>
-;;  8   - modules
-;;  16  - modules.capacity
-;;  24  - module: usize
-;;  32  - data.start: Vec<u8>
-;;  40  - data
-;;  48  - data.capacity
-;;  56  - rodata.start: Vec<u8>
-;;  64  - rodata
-;;  72  - rodata.capacity
-;;  80  - import_files: HashMap<PathBuf, Symbol>
-;;  88  - import_files.len
-;;  96  - import_files.capacity
-;;  } 104
-;;  x21 - Tokenizer {
+;; Tokenizer {
 ;;  0   - input.start: Vec<u8>
 ;;  8   - input: Vec<u8>
 ;;  16  - input.end
@@ -1373,7 +1352,146 @@ start
 ;;  104 - filename: String
 ;;  112 - filename.len
 ;;  120 - err: bool
-;;  } 128
+;; } 128
+(module Tokenizer
+    (define input.start 0)
+    (define input 8)
+    (define input.end 16)
+    (define tokens_pos 24)
+    (define tokens.start 32)
+    (define tokens 40)
+    (define tokens.capacity 48)
+    (define token_info.start 56)
+    (define token_info 64)
+    (define token_info.capacity 72)
+    (define lines.start 80)
+    (define lines 88)
+    (define lines.capacity 96)
+    (define filename 104)
+    (define filename.len 112)
+    (define err 120)
+
+    ;; ARGS:
+    ;;  x10 - input: Vec<u8>
+    ;;  x11 - input.end
+    ;;  x12 - filename: String
+    ;;  x13 - filename.len
+    ;; RET:
+    ;;  x10 - *Tokenizer
+    (module new
+        (subi x2 x2 40)
+        (sd x2 x1)
+        (sd (+ x2 8) x10)
+        (sd (+ x2 16) x11)
+        (sd (+ x2 24) x12)
+        (sd (+ x2 32) x13)
+        ;; Tokenizer
+        (addi x10 x0 128)
+        (jal x1 alloc)
+        ;; input
+        (ld x5 (+ x2 8))
+        (ld x6 (+ x2 16))
+        (sd x10 x5)
+        (sd (+ x10 8) x5)
+        (sd (+ x10 16) x6)
+        ;; filename
+        (ld x5 (+ x2 24))
+        (ld x6 (+ x2 32))
+        (sd (+ x10 104) x5)
+        (sd (+ x10 112) x6)
+        (sd (+ x2 8) x10)
+        ;; tokens
+        (addi x10 x0 128)
+        (addi x10 x0 128)
+        (jal x1 alloc)
+        (ld x11 (+ x2 8))
+        (sd (+ x11 24) x10)
+        (sd (+ x11 32) x10)
+        (sd (+ x11 40) x10)
+        (addi x10 x10 128)
+        (sd (+ x11 48) x10)
+        ;; token_info
+        (addi x10 x0 128)
+        (jal x1 alloc)
+        (ld x11 (+ x2 8))
+        (sd (+ x11 56) x10)
+        (sd (+ x11 64) x10)
+        (addi x10 x10 128)
+        (sd (+ x11 72) x10)
+        ;; token_lines
+        (addi x10 x0 128)
+        (jal x1 alloc)
+        (ld x11 (+ x2 8))
+        (sd (+ x11 80) x10)
+        (sd (+ x11 88) x10)
+        (addi x10 x10 128)
+        (sd (+ x11 96) x10)
+        (sd (+ x11 120) x0)
+        (add x10 x0 x11)
+        (ld x1 x2)
+        (addi x2 x2 40)
+        (jalr x0 x1)
+    )
+
+    ;; ARGS:
+    ;;  x10 - *Tokenizer
+    (module free
+        (subi x2 x2 16)
+        (sd x2 x1)
+        (sd (+ x2 8) x10)
+        ;; tokens
+        (ld x10 (+ x10 32))
+        (jal x1 free)
+        ;; token_info
+        (ld x10 (+ x2 8))
+        (ld x10 (+ x10 56))
+        (jal x1 free)
+        ;; lines
+        (ld x10 (+ x2 8))
+        (ld x10 (+ x10 80))
+        (jal x1 free)
+        (ld x10 (+ x2 8))
+        (jal x1 free)
+        (ld x1 x2)
+        (addi x2 x2 16)
+        (jalr x0 x1)
+    )
+)
+
+;; Asm {
+;;  0   - modules.start: Vec<Module>
+;;  8   - modules
+;;  16  - modules.capacity
+;;  24  - module: *Module
+;;  32  - data.start: Vec<u8>
+;;  40  - data
+;;  48  - data.capacity
+;;  56  - rodata.start: Vec<u8>
+;;  64  - rodata
+;;  72  - rodata.capacity
+;;  80  - import_files: HashMap<PathBuf, Symbol>
+;;  88  - import_files.len
+;;  96  - import_files.capacity
+;; } 104
+(module Asm
+    (define modules.start 0)
+    (define modules 8)
+    (define modules.capacity 16)
+    (define module 24)
+    (define data.start 32)
+    (define data 40)
+    (define data.capacity 48)
+    (define rodata.start 56)
+    (define rodata 64)
+    (define rodata.capacity 72)
+    (define import_files 80)
+    (define import_files.len 88)
+    (define import_files.capacity 96)
+)
+
+;; ARGS:
+;;  x20 - *Asm
+;;  x21 - *Tokenizer
 ;; RET:
 ;;  x10: done? - bool
 (module assemble
