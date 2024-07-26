@@ -79,7 +79,7 @@
         (jalr x0 x1)
 
         exists
-            (bne x13 x0 ret)
+            (beq x13 x0 ret)
             (sd (+ x5 8) x12)
         ret
             (addi x10 x0 1)
@@ -204,6 +204,45 @@
 
     ;; ARGS:
     ;;  x10 - *SymbolMap
+    ;; RET:
+    ;;  x10 - SymbolMap.buffer
+    ;;  x11 - SymbolMap.capacity
+    (module iter
+        (ld x11 (+ x10 16))
+        (ld x10 x10)
+        ;; mul 24
+        (slli x12 x11 3)
+        (slli x11 x11 4)
+        (add x11 x11 x12)
+        (add x11 x11 x10)
+        (jalr x0 x1)
+    )
+
+    ;; ARGS:
+    ;;  x10 - SymbolMap.buffer
+    ;;  x11 - SymbolMap.capacity
+    ;; RET:
+    ;;  x10 - SymbolMap.buffer
+    ;;  x11 - SymbolMap.capacity
+    ;;  x12 - key - Symbol
+    ;;  x13 - value1: usize
+    ;;  x14 - value2: usize
+    (module next
+        (beq x10 x11 none)
+        (ld x12 x10)
+        (addi x10 x10 24)
+        (beq x12 x0 next)
+        (ld x13 (+ x10 8))
+        (ld x14 (+ x10 16))
+        (jalr x0 x1)
+
+        none
+        (add x12 x0 x0)
+        (jalr x0 x1)
+    )
+
+    ;; ARGS:
+    ;;  x10 - *SymbolMap
     ;;  x11 - key: Symbol
     ;;  x12 - value1: usize
     ;;  x13 - value2: usize
@@ -230,7 +269,7 @@
         (jalr x0 x1)
 
         exists
-            (bne x14 x0 ret)
+            (beq x14 x0 ret)
             (sd (+ x5 8) x12)
             (sd (+ x5 16) x13)
         ret
