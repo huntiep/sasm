@@ -203,7 +203,7 @@ impl Tokenizer {
                 self.newline();
             } else if c == b'"' {
                 self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
-                return Some(Token::String(start+1, (self.position - start) as u32));
+                return Some(Token::String(start+1, (self.position - start - 2) as u32));
             }
         }
         self.print_err(start, line, "Unclosed string beginning", "");

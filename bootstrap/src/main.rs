@@ -164,7 +164,7 @@ struct Asm {
     module: usize,
     data: Vec<u8>,
     rodata: Vec<u8>,
-    import_files: HashMap<PathBuf, Symbol>,
+    import_files: HashMap<PathBuf, usize>,
 }
 
 type Symbol = usize;
@@ -294,7 +294,6 @@ impl Asm {
             for (path, i, ty) in &module.refs {
                 refs.push((module.id, path.clone(), i + (code.len() * 4), *ty));
             }
-            self.module = module.id;
             for (i, p, constant) in &module.rewrites {
                 rewrites.push((i + code.len(), *p, *constant));
             }
@@ -353,7 +352,6 @@ impl Asm {
     fn add_label(&mut self, label: usize) {
         if self.get_mod().labels.contains_key(&label) {
             self.print_err(&format!("Duplicate label `{}`", get_value(label)), "");
-        //} else if self.in_scope(label) {
         } else if self.get_mod().children.contains_key(&label) {
             self.print_err(&format!("Label `{}` conflicts with module/definition", get_value(label)), "");
         } else {
@@ -441,7 +439,8 @@ impl Asm {
                     let (importp, v) = v.unwrap();
                     if importp {
                         self.print_err("Cannot import an import from import statement", "");
-                    } else if i == path.len() {
+                    }
+                    if i == path.len() {
                         if self.in_scope(p) {
                             self.print_err(&format!("`{}` is already defined in this scope from import statement", get_value(p)), "");
                         } else {
@@ -452,20 +451,17 @@ impl Asm {
                     }
                     return;
                 }
-                Some((importp, Unit::Module(id))) if !importp => if i == path.len() {
-                    if id == self.get_mod().id {
-                        self.print_err("Cannot import self", "");
-                    } else if self.in_scope(p) {
-                        self.print_err(&format!("`{}` is already defined in this scope in import statement", get_value(p)), "");
+                Some((importp, Unit::Module(id))) if !importp => if id == self.get_mod().id {
+                    self.print_err("Cannot import self", "");
+                    return;
+                } else if i == path.len() {
+                    if self.in_scope(p) {
+                        self.print_err(&format!("`{}` is already defined in this scope from import statement", get_value(p)), "");
                     } else {
                         self.get_mod().children.insert(p, (true, Unit::Module(id)));
                     }
                     return;
                 } else {
-                    if id == self.get_mod().id {
-                        self.print_err("Cannot import self", "");
-                        return;
-                    }
                     m = &self.modules[id]
                 },
                 Some(_) | None => {
@@ -583,21 +579,19 @@ impl Asm {
 
         let m_id = self.modules.len();
         self.import_files.insert(file_path.clone(), m_id);
-        let mut module = Module::new(m_id, Some(parent), true);
-        module.labels.insert(path, 0);
-        let old_id = self.module;
-        self.module = m_id;
+        let module = Module::new(m_id, Some(parent), true);
         self.modules.push(module);
 
         let include_input = match read_file(&file_path) {
             Ok(i) => i,
             Err(e) => {
                 self.print_err("Error executing import", &format!("\t{}", e));
-                self.module = old_id;
                 return Some(m_id);
             }
         };
 
+        let old_id = self.module;
+        self.module = m_id;
         let mut t = Box::new(Tokenizer::new(include_input, file_path.display().to_string()));
         mem::swap(&mut self.tokenizer, &mut t);
         loop {
@@ -611,6 +605,9 @@ impl Asm {
         t.err |= self.tokenizer.err;
         mem::swap(&mut self.tokenizer, &mut t);
 
+        if self.get_mod().code.len() > 0 {
+            self.get_mod().labels.insert(path, 0);
+        }
         self.module = old_id;
         Some(m_id)
     }
@@ -633,6 +630,7 @@ impl Asm {
         let m_id = self.modules.len();
         let mut module = Module::new(m_id, Some(self.module), false);
         module.labels.insert(ident, 0);
+        // TODO: in_scope?
         if self.get_mod().children.contains_key(&ident) {
             self.print_err(&format!("Module `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
         } else {
@@ -1059,6 +1057,9 @@ impl Asm {
                     _ => {
                         self.backtrack();
                         let path = self.unwrap_path();
+                        if path.is_empty() {
+                            return 0;
+                        }
                         return match self.follow_path(&path) {
                             Some(Unit::Constant(i)) => i,
                             Some(_) => {
@@ -1114,9 +1115,7 @@ impl Asm {
                             self.backtrack();
                         }
                         self.print_err("Too many arguments or missing parenthesis in `len` expression", "");
-                        if Token::LParen != t {
-                            self.skip_opcode();
-                        }
+                        self.skip_opcode();
                     }
                     None => self.print_err("Unexpected EOF in `len` expression", ""),
                 }
@@ -1447,13 +1446,16 @@ impl Asm {
     }
 
     fn get_string(&mut self, start: usize, end: u32) -> Vec<u8> {
-        let end = start + end as usize;
-        let mut v = Vec::with_capacity(end-start);
-        let mut i = start;
-        while i < end {
-            if self.tokenizer.input[i] == b'\\' {
+        let mut v = Vec::with_capacity(end as usize);
+        let mut i = 0;
+        while i < end as usize {
+            if self.tokenizer.input[start+i] == b'\\' {
                 i += 1;
-                match self.tokenizer.input[i] {
+                if i == end as usize {
+                    self.print_err("Unfinished escape code", "");
+                    break;
+                }
+                match self.tokenizer.input[start+i] {
                     b'r' => v.push(b'\r'),
                     b'n' => v.push(b'\n'),
                     b't' => v.push(b'\t'),
@@ -1463,7 +1465,7 @@ impl Asm {
                     c @ _ => v.push(c),
                 }
             } else {
-                v.push(self.tokenizer.input[i]);
+                v.push(self.tokenizer.input[start+i]);
             }
             i += 1;
         }
@@ -1486,8 +1488,8 @@ impl Asm {
         (t.line, self.tokenizer.idx_in_line(t.start), self.tokenizer.filename.clone())
     }
 
-    fn same_line(&self, start: usize) -> bool {
-        self.tokenizer.token_info[self.tokenizer.token_position-1].line == self.tokenizer.token_info[start].line
+    fn same_line(&self, line: usize) -> bool {
+        self.tokenizer.token_info[self.tokenizer.token_position-1].line == line
     }
 
     fn get_mod(&mut self) -> &mut Module {
