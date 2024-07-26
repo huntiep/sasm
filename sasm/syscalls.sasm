@@ -7,16 +7,111 @@
 (define SEEK_END 2)
 
 (define AT_FDCWD -100)
+(define O_RDONLY 0)
+(define O_WRONLY 1)
+(define O_CREAT 64)
+(define O_TRUNC 512)
+(define O_DIR 65536)
+
+(define ENOTDIR 20)
+(define ENOENT 2)
+
 (define PROT_READ 1)
 (define PROT_WRITE 2)
 (define PROT_RW 3)
 (define MAP_PRIVATE 2)
 
+(define AF_INET 2)
+(define SOCK_STREAM 1)
+(define IPPROTO_IP 0)
+(define SOL_SOCKET 1)
+(define SO_REUSEADDR 2)
+
 (define SYS_OPENAT 56)
 (define SYS_CLOSE 57)
+(define SYS_GETDENTS64 61)
 (define SYS_LSEEK 62)
+(define SYS_READ 63)
 (define SYS_WRITE 64)
 (define SYS_EXIT 93)
+(define SYS_SOCKET 198)
+(define SYS_BIND 200)
+(define SYS_LISTEN 201)
+(define SYS_ACCEPT 202)
+(define SYS_CONNECT 203)
+(define SYS_SETSOCKOPT 208)
 (define SYS_BRK 214)
 (define SYS_MUNMAP 215)
 (define SYS_MMAP 222)
+(define SYS_STATX 291)
+
+(module dirent64
+    (define d_ino 0)
+    (define d_off 8)
+    (define d_reclen 16)
+    (define d_type 18)
+    (define d_name 19)
+
+    (define DT_UNKNOWN 0)
+    (define DT_FIFO 1)
+    (define DT_CHR 2)
+    (define DT_DIR 4)
+    (define DT_BLK 6)
+    (define DT_REG 8)
+    (define DT_LNK 10)
+    (define DT_SOCK 12)
+    (define DT_WHT 14)
+)
+
+;; linux/include/uapi/linux/stat.h
+(module statx
+    (define SIZE_OF 0x100)
+    ;; 0x00
+    (define stx_mask 0)
+    (define stx_blksize 4)
+    (define stx_attributes 8)
+
+    ;; 0x10
+    (define stx_nlink 16)
+    (define stx_uid 20)
+    (define stx_gid 24)
+    (define stx_mode 28)
+
+    ;; 0x20
+    (define stx_ino 32)
+    (define stx_size 40)
+    (define stx_blocks 48)
+    (define stx_attributes_mask 56)
+
+    ;; 0x40
+    (define stx_atime 64)
+    (define stx_btime 80)
+    (define stx_ctime 96)
+    (define stx_mtime 112)
+
+    ;; 0x80
+    (define stx_rdev_major 128)
+    (define stx_rdev_minor 132)
+    (define stx_dev_major 136)
+    (define stx_dev_minor 140)
+
+    ;; 0x90
+    (define stx_mnt_id 144)
+    (define stx_dio_mem_align 152)
+    (define stx_dio_offset_align 156)
+
+    ;; 0xa0
+    (define stx_subvol 160)
+
+    (define S_IFMT  0o0170000)
+    (define S_IFSOCK 0o140000)
+    (define S_IFLNK  0o120000)
+    (define S_IFREG  0o100000)
+    (define S_IFBLK  0o060000)
+    (define S_IFDIR  0o040000)
+    (define S_IFCHR  0o020000)
+    (define S_IFIFO  0o010000)
+    (define S_ISUID  0o004000)
+    (define S_ISGID  0o002000)
+    (define S_ISVTX  0o001000)
+)
