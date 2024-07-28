@@ -1,6 +1,6 @@
-(import (malloc calloc))
-(import (malloc realloc))
-(import (malloc free))
+(import (alloc calloc))
+(import (alloc realloc))
+(import (alloc free))
 
 (module symbol-map16
     ;; ARGS:

@@ -23,7 +23,7 @@
 ;;   x29 - temp
 (define Malloc::Alignment 7)
 (define Malloc::SIZE_T_SIZE 8)
-(module alloc
+(module malloc
     ;; Align(size)
     (addi x10 x10 Malloc::SIZE_T_SIZE)
     (addi x10 x10 Malloc::Alignment)
@@ -97,7 +97,7 @@
     (subi x2 x2 16)
     (sd x2 x1)
     (sd (+ x2 8) x10)
-    (jal x1 alloc)
+    (jal x1 malloc)
     (add x6 x0 x10)
     (ld x1 x2)
     (ld x5 (+ x2 8))
@@ -143,7 +143,7 @@
     (sd (+ x2 8) x10)
     (sd x2 x1)
     (add x10 x0 x11)
-    (jal x1 alloc)
+    (jal x1 malloc)
     (ld x1 x2)
     (ld x11 (+ x2 8))
     (addi x2 x2 16)
