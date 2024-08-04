@@ -6637,9 +6637,9 @@ start
                    0 0 0 0 ;; e_flags
                    64 0 ;; e_ehsize
                    56 0 ;; e_phentsize
-                   2 0 ;; e_num
+                   0 0 ;; e_phnum
                    64 0 ;; e_shentsize
-                   0 0 ;; e_num
+                   0 0 ;; e_shnum
                    0 0)) ;; e_shstrndx
 
     (defvar phdr #(1 0 0 0 ;; p_type
@@ -6719,6 +6719,16 @@ start
     (lui x6 ENTRY_LOCATION)
     (add x6 x6 x5)
     (sd (+ x11 24) x6)
+    (addi x6 x0 1)
+    (sub x7 x23 x22)
+    (beq x7 x0 ehdr-rodata)
+    (addi x6 x6 1)
+    ehdr-rodata
+    (sub x7 x25 x24)
+    (beq x7 x0 ehdr-write)
+    (addi x6 x6 1)
+    ehdr-write
+    (sh (+ x11 56) x6)
     ;; write(fd, msg, len)
     (add x10 x0 x28)
     (addi x12 x0 (len ehdr))
