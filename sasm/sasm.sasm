@@ -22,6 +22,7 @@
     (define Bytes 0b100)
     (define Constant 0b110)
     (define import 0b1000)
+    (define mask 0b110)
 )
 
 (import (sasm-strings *))
@@ -4185,13 +4186,15 @@ start
 
         len-path
             (jal x1 unwrap-path)
-            (sd x2 x10)
             (beq x10 x0 len-empty)
             (subi x2 x2 8)
             (sd x2 x11)
+            (sd (+ x2 8) x10)
             (jal x1 follow-path)
-            (subi x5 x10 (Unit Bytes))
+            (andi x5 x10 (Unit mask))
+            (subi x5 x5 (Unit Bytes))
             (bne x5 x0 len-undef)
+            (srai x11 x10 4)
             (addi x2 x2 8)
             (ld x10 x2)
             (sd x2 x11)
@@ -4238,6 +4241,7 @@ start
             (sd (+ x2 8) x11)
             (jal x1 follow-path)
             (beq x10 x0 path-unknown)
+            (andi x10 x10 (Unit mask))
             (subi x10 x10 (Unit Constant))
             (bne x10 x0 path-constant)
             (sd (+ x2 8) x11)
@@ -4248,13 +4252,14 @@ start
             (jal x0 imm)
 
         symbol
+            ;; create temporary Vec<Symbol>
             (subi x2 x2 8)
             (sd x2 x11)
-            ;; create temporary Vec<Symbol>
             (add x10 x0 x2)
             (addi x11 x10 8)
             (jal x1 follow-path)
             (beq x10 x0 symbol-unknown)
+            (andi x10 x10 (Unit mask))
             (subi x10 x10 (Unit Constant))
             (bne x10 x0 symbol-constant)
             (addi x2 x2 8)
@@ -4271,7 +4276,7 @@ start
             (addi x6 x0 (len eof-msg))
         print
             (add x7 x0 x0)
-            (jal x0 print-err)
+            (jal x1 print-err)
             (ld x1 x2)
             (addi x2 x2 8)
             (add x10 x0 x0)
@@ -4281,7 +4286,7 @@ start
             (la x5 rparen-msg)
             (addi x6 x0 (len rparen-msg))
             (add x7 x0 x0)
-            (jal x0 print-err)
+            (jal x1 print-err)
             ;; backtrack
             (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
