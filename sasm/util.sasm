@@ -179,22 +179,28 @@
     ;;  x5  - *Entry
     (module entry
         (ld x6 (+ x10 16))
-        (subi x7 x7 1)
+        (subi x7 x6 1)
         (and x7 x11 x7)
         ;; mul 24
         (slli x5 x7 3)
         (slli x7 x7 4)
         (add x7 x7 x5)
+        ;; mul 24
+        (slli x5 x6 3)
+        (slli x6 x6 5)
+        (add x6 x6 x5)
         (ld x5 x10)
+        (add x6 x6 x5)
         (add x5 x5 x7)
 
         loop
             (beq x5 x6 loopback)
             (ld x7 x5)
-            (beq x7 x0 done)
             (addi x5 x5 24)
+            (beq x7 x0 done)
             (bne x7 x11 loop)
         done
+        (subi x5 x5 24)
         (jalr x0 x1)
 
         loopback
@@ -354,6 +360,7 @@
 ;; RET:
 ;;  x10 - to-ptr+from.len
 (module strdup
+    (beq x12 x0 done)
     (add x12 x11 x12)
     loop
         (lb x5 x11)
@@ -361,6 +368,7 @@
         (addi x10 x10 1)
         (addi x11 x11 1)
         (bne x11 x12 loop)
+    done
     (jalr x0 x1)
 )
 
