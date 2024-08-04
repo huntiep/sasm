@@ -27,6 +27,10 @@ fn main() {
     for arg in args {
         if arg == "-d" {
             debug = true;
+        } else if arg == "-V" {
+            eprintln!("S-Assembler v2.0 - The Arcadian State (Rust version)");
+            eprintln!("Written by Hunter Praska");
+            exit(0);
         } else if arg.starts_with("-") {
             eprintln!("Unknown flag `{}`.", arg);
             usage = true;
