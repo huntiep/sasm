@@ -4983,7 +4983,7 @@ start
             (ld x5 (+ x2 8))
             (ld x6 (+ x2 16))
             (beq x12 x0 check-parent)
-            (andi x8 x10 0b110)
+            (andi x8 x10 (Unit mask))
             (subi x8 x8 (Unit Module))
             (bne x8 x0 imm)
             (add x7 x0 x11)
@@ -5003,14 +5003,7 @@ start
             (jal x0 ret)
 
         imm
-            (bne x5 x6 none)
-            (srai x7 x10 4)
-            (add x10 x0 x8)
-            (subi x8 x8 (Unit Bytes))
-            (bne x8 x0 ret)
-            (add x11 x0 x7)
-            (jal x0 ret)
-        none
+            (beq x5 x6 ret)
             (add x10 x0 x0)
             (jal x0 ret)
 
@@ -5127,7 +5120,7 @@ start
         (subi x2 x2 24)
         (sd x2 x1)
         (add x11 x0 x10)
-        (addi x10 x20 (Asm module))
+        (ld x10 (+ x20 (Asm module)))
         (sd (+ x2 8) x10)
         (sd (+ x2 16) x11)
         loop
