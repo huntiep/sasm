@@ -3525,7 +3525,6 @@ start
             (la x5 funct3-table)
             (add x5 x5 x11)
             (lb x5 (- x5 Instr::add))
-            (lb x5 x5)
             (slli x5 x5 12)
             (or x23 x23 x5)
             (add x24 x0 x11)
@@ -3536,10 +3535,12 @@ start
             (slli x10 x10 15)
             (or x23 x23 x10)
             (jal x1 unwrap-imm)
+            ;; TODO: delete me v3.0
             (subi x5 x24 Instr::subi)
             (bne x5 x0 iin-after-sub)
             (sub x10 x0 x10)
         iin-after-sub
+            ;; TODO: range for shifts
             (subi x5 x24 Instr::srai)
             (bne x5 x0 iin-after-srai)
             (addi x5 x0 0x20)
