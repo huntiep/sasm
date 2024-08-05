@@ -36,8 +36,8 @@ pub const CARAT: usize = 85;
 pub const STAR: usize = 86;
 pub const INCLUDE: usize = 87;
 pub const DEFINE: usize = 88;
-pub const DEFCON: usize = 89;
-pub const DEFVAR: usize = 90;
+pub const DEFVAR: usize = 89;
+pub const DEFCON: usize = 90;
 
 pub fn init() {
     assert_eq!(get_symbol(b"x0".to_vec()), 1);
@@ -135,7 +135,7 @@ pub fn init() {
     get_symbol(b"*".to_vec());
     get_symbol(b"include!".to_vec());
     get_symbol(b"define".to_vec());
-    get_symbol(b"defcon".to_vec());
     get_symbol(b"defvar".to_vec());
+    get_symbol(b"defcon".to_vec());
 
 }
