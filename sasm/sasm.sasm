@@ -5453,16 +5453,14 @@ start
     ;;  x7 - note
     ;;  x8 - note.len
     (module print-err
-        (ld x14 (+ x21 24))
+        (ld x14 (+ x21 (Tokenizer token_pos)))
         (subi x14 x14 16)
-        (ld x15 (+ x21 32))
+        (ld x15 (+ x21 (Tokenizer tokens.start)))
         (sub x14 x14 x15)
-        (srai x15 x14 1)
-        (add x14 x14 x15)
-        (ld x15 (+ x21 56))
+        (ld x15 (+ x21 (Tokenizer token_info.start)))
         (add x14 x14 x15)
         (ld x15 x14)
-        (ld x14 (+ x15 8))
+        (ld x14 (+ x14 8))
         (jal x0 (tokenize print-err))
     )
 
