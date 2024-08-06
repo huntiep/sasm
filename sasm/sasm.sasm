@@ -3615,11 +3615,7 @@ start
             (la x7 sin-msg2)
             (addi x8 x0 (len sin-msg2))
             (add x10 x0 x11)
-            (subi x2 x2 8)
-            (sd x2 x11)
             (jal x1 print-err-int)
-            (ld x11 x2)
-            (addi x2 x2 8)
             (jal x0 sin-range-after)
 
         bin
@@ -4397,7 +4393,8 @@ start
             (blt x5 x11 imm/reg)
 
             (subi x11 x11 1)
-            (subi x2 x2 16)
+            (subi x2 x2 24)
+            (sd (+ x2 16) x27)
             (sd x2 x11)
             ;; next
             (jal x1 tokenize)
@@ -4407,7 +4404,8 @@ start
 
         imm/reg
             (jal x1 unwrap-imm)
-            (subi x2 x2 16)
+            (subi x2 x2 24)
+            (sd (+ x2 16) x27)
             (sd (+ x2 8) x10)
             (jal x1 unwrap-register)
             (sd x2 x10)
@@ -4429,11 +4427,12 @@ start
         close-neg
             (ld x10 x2)
             (ld x11 (+ x2 8))
+            (ld x27 (+ x2 16))
             (beq x27 x0 close-ret)
             (sub x11 x0 x11)
         close-ret
-            (ld x1 (+ x2 16))
-            (addi x2 x2 24)
+            (ld x1 (+ x2 24))
+            (addi x2 x2 32)
             (jalr x0 x1)
 
         eof
