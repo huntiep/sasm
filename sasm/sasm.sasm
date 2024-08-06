@@ -4353,9 +4353,9 @@ start
         (bne x5 x0 reg/offset)
 
         ;; backtrack
-        (ld x5 (+ x21 24))
+        (ld x5 (+ x21 (Tokenizer token_pos)))
         (subi x5 x5 16)
-        (sd (+ x21 24) x5)
+        (sd (+ x21 (Tokenizer token_pos)) x5)
         (jal x1 unwrap-register)
         (add x11 x0 x0)
         (ld x1 x2)
@@ -4369,7 +4369,7 @@ start
         (beq x5 x0 empty)
         (subi x5 x10 (Token Symbol))
         (bne x5 x0 expr)
-        (add x31 x0 x0)
+        (add x27 x0 x0)
         (subi x5 x11 Instr::+)
         (beq x5 x0 get)
         (subi x5 x11 Instr::-)
@@ -4379,9 +4379,9 @@ start
         get
             (jal x1 tokenize)
             ;; backtrack
-            (ld x5 (+ x21 24))
+            (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
-            (sd (+ x21 24) x5)
+            (sd (+ x21 (Tokenizer token_pos)) x5)
             (beq x10 x0 offset-eof)
             (subi x5 x10 (Token RightParen))
             (beq x5 x0 reg/imm)
@@ -4399,6 +4399,7 @@ start
             (subi x11 x11 1)
             (subi x2 x2 16)
             (sd x2 x11)
+            ;; next
             (jal x1 tokenize)
             (jal x1 unwrap-imm)
             (sd (+ x2 8) x10)
@@ -4416,9 +4417,9 @@ start
             (subi x10 x10 (Token RightParen))
             (beq x10 x0 close-neg)
             ;; backtrack
-            (ld x5 (+ x21 24))
+            (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
-            (sd (+ x21 24) x5)
+            (sd (+ x21 (Tokenizer token_pos)) x5)
             (defcon close-msg "Expected closing parenthesis in expression offset")
             (la x5 close-msg)
             (addi x6 x0 (len close-msg))
@@ -4457,18 +4458,14 @@ start
             (add x7 x0 x0)
             (jal x1 print-err)
             (ld x10 x2)
+            (addi x2 x2 8)
             (subi x10 x10 (Token RightParen))
-            (bne x10 x0 ret)
+            (bne x10 x0 err-ret)
             ;; backtrack
-            (ld x5 (+ x21 24))
+            (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
-            (sd (+ x21 24) x5)
-        ret
-            (add x10 x0 x0)
-            (add x11 x0 x0)
-            (ld x1 (+ x2 8))
-            (addi x2 x2 16)
-            (jalr x0 x1)
+            (sd (+ x21 (Tokenizer token_pos)) x5)
+            (jal x0 err-ret)
         offset-eof
             (defcon offset-eof-msg "Unexepcted EOF in expression offset")
             (la x5 offset-eof-msg)
