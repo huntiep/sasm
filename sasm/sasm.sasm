@@ -3676,23 +3676,23 @@ start
             ;; (imm & 0x10_00_00) >> 1
             (addi x5 x0 1)
             (slli x5 x5 20)
-            (and x5 x10 x5)
+            (and x5 x11 x5)
             (srai x5 x5 1)
 
             ;;(imm >> 1) & 0x3ff) << 9
-            (srai x6 x10 1)
+            (srai x6 x11 1)
             (andi x6 x6 1023)
             (slli x6 x6 9)
             (or x5 x5 x6)
 
             ;; ((imm >> 11) & 1) << 8
-            (srai x6 x10 11)
+            (srai x6 x11 11)
             (andi x6 x6 1)
             (slli x6 x6 8)
             (or x5 x5 x6)
 
             ;; (imm >> 12) & 0xff
-            (srai x6 x10 12)
+            (srai x6 x11 12)
             (andi x6 x6 255)
             (or x5 x5 x6)
 
@@ -3707,7 +3707,6 @@ start
             (addi x6 x0 (len jal-msg))
             (la x7 jal-msg2)
             (addi x8 x0 (len jal-msg2))
-            (add x10 x0 x11)
             (add x11 x0 x0)
             (jal x1 print-err-symbol)
             (jal x0 jal-range-after)
