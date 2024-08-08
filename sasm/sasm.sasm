@@ -6783,10 +6783,10 @@ start
     (addi x31 x0 4)
     (sw (+ x11 4) x31)
     ;; p_offset
-    (sw (+ x11 8) x5)
+    (sw (+ x11 8) x6)
     ;; p_vaddr
     (lui x31 RODATA_LOCATION)
-    (add x31 x31 x5)
+    (add x31 x31 x6)
     (sw (+ x11 16) x31)
     ;; p_paddr
     (sw (+ x11 24) x31)
@@ -6811,15 +6811,16 @@ start
 
     (beq x26 x27 rewrite-done)
     rewrite
-        (ld x7 x26)
-        (ld x31 (+ x26 16))
-        (beq x31 x0 rewrite-data)
+        (ld x31 (+ x26 8))
+        (andi x30 x31 1)
+        (srai x31 x31 1)
+        (beq x30 x0 rewrite-data)
         ;; offset
-        (add x7 x7 x6)
+        (add x7 x31 x6)
         (jal x0 rewrite-imm)
     rewrite-data
         ;; offset
-        (add x7 x7 x5)
+        (add x7 x31 x5)
     rewrite-imm
         ;; imm20
         (addi x29 x0 1)
@@ -6828,22 +6829,23 @@ start
         (srai x29 x29 12)
         (slli x29 x29 12)
         ;; lui
-        (ld x31 (+ x26 8))
+        (ld x31 x26)
         (add x31 x31 x20)
-        (ld x30 x31)
+        (lw x30 x31)
         (or x30 x30 x29)
-        (sd x31 x30)
+        (sw x31 x30)
         ;; addi
         ;; imm12
         (addi x30 x0 255)
         (slli x30 x30 4)
         (addi x30 x30 15)
         (and x7 x7 x30)
-        (ld x30 (+ x31 4))
+        (slli x7 x7 20)
+        (lw x30 (+ x31 4))
         (or x30 x30 x7)
-        (sd (+ x31 4) x30)
+        (sw (+ x31 4) x30)
 
-        (addi x26 x26 24)
+        (addi x26 x26 16)
         (bne x26 x27 rewrite)
     rewrite-done
 
