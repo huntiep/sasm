@@ -481,18 +481,19 @@ start
         (sd x2 x1)
         (sd (+ x2 8) x10)
         ;; tokens
-        (ld x10 (+ x10 32))
-        (jal x1 free)
+        (ld x10 (+ x10 tokens.start))
+        (jal x1 (alloc free))
         ;; token_info
         (ld x10 (+ x2 8))
-        (ld x10 (+ x10 56))
-        (jal x1 free)
+        (ld x10 (+ x10 token_info.start))
+        (jal x1 (alloc free))
         ;; lines
         (ld x10 (+ x2 8))
-        (ld x10 (+ x10 80))
-        (jal x1 free)
+        (ld x10 (+ x10 lines.start))
+        (jal x1 (alloc free))
+        ;; Tokenizer
         (ld x10 (+ x2 8))
-        (jal x1 free)
+        (jal x1 (alloc free))
         (ld x1 x2)
         (addi x2 x2 16)
         (jalr x0 x1)
