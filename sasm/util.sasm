@@ -80,12 +80,18 @@
         (bne x6 x0 exists)
         (sd x5 x11)
         (sd (+ x5 8) x12)
+        (ld x5 (+ x10 8))
+        (addi x5 x5 1)
+        (sd (+ x10 8) x5)
         (add x10 x0 x0)
         (jalr x0 x1)
 
         exists
             (beq x13 x0 ret)
             (sd (+ x5 8) x12)
+            (ld x5 (+ x10 8))
+            (addi x5 x5 1)
+            (sd (+ x10 8) x5)
         ret
             (addi x10 x0 1)
             (jalr x0 x1)
@@ -99,17 +105,16 @@
             (sd (+ x2 32) x13)
             ;; mul 32 = 16*2
             (slli x10 x6 5)
-            (sd (+ x2 40) x10)
             (jal x1 calloc)
             (ld x11 (+ x2 40))
             (add x11 x11 x10)
             (ld x5 (+ x2 8))
             (ld x6 (+ x5 16))
             (ld x5 x5)
+            (slli x7 x6 1)
             ;; mul 16
             (slli x6 x6 4)
             (add x6 x6 x5)
-            (ld x7 (+ x2 40))
             (subi x7 x7 1)
 
             loop
@@ -276,6 +281,9 @@
         (sd x5 x11)
         (sd (+ x5 8) x12)
         (sd (+ x5 16) x13)
+        (ld x5 (+ x10 8))
+        (addi x5 x5 1)
+        (sd (+ x10 8) x5)
         (add x10 x0 x0)
         (jalr x0 x1)
 
@@ -283,6 +291,9 @@
             (beq x14 x0 ret)
             (sd (+ x5 8) x12)
             (sd (+ x5 16) x13)
+            (ld x5 (+ x10 8))
+            (addi x5 x5 1)
+            (sd (+ x10 8) x5)
         ret
             (addi x10 x0 1)
             (jalr x0 x1)
@@ -299,19 +310,18 @@
             (slli x10 x6 5)
             (slli x6 x6 4)
             (add x10 x10 x6)
-            (sd (+ x2 48) x10)
             (jal x1 calloc)
             (ld x11 (+ x2 48))
             (add x11 x11 x10)
             (ld x5 (+ x2 8))
             (ld x6 (+ x5 16))
             (ld x5 x5)
+            (slli x7 x6 1)
             ;; mul 24
-            (slli x7 x6 3)
+            (slli x8 x6 3)
             (slli x6 x6 4)
-            (add x6 x6 x7)
+            (add x6 x6 x8)
             (add x6 x6 x5)
-            (ld x7 (+ x2 48))
             (subi x7 x7 1)
 
             loop
