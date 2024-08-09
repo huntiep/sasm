@@ -1839,9 +1839,9 @@ start
         (jal x0 handle-opcode)
 
         rparen
-            (ld x5 (+ x21 24))
-            (subi x5 x5 1)
-            (sd (+ x21 24) x5)
+            (ld x5 (+ x21 (Tokenizer token_pos)))
+            (subi x5 x5 16)
+            (sd (+ x21 (Tokenizer token_pos)) x5)
             (ld x1 x2)
             (addi x2 x2 8)
             (addi x10 x0 1)
@@ -2445,31 +2445,34 @@ start
         continue
         (subi x2 x2 16)
         (sd x2 x11)
-        (ld x10 (+ x20 24))
+        (ld x10 (+ x20 (Asm module)))
         (add x11 x0 x0)
         (jal x1 (Module new))
         (sd (+ x2 8) x10)
         ;; add to modules
-        (ld x5 (+ x20 8))
-        (ld x6 (+ x20 16))
-        (beq x5 x6 resize-modules)
+        (ld x5 (+ x20 (Asm modules)))
+        (ld x6 (+ x20 (Asm modules.capacity)))
+        (bne x5 x6 resize-modules-after)
+            (addi x10 x20 (Asm modules.start))
+            (jal x1 resize-array)
+            (add x5 x0 x10)
+            (ld x10 (+ x2 8))
         resize-modules-after
         (sd x5 x10)
         (addi x5 x5 8)
-        (sd (+ x20 8) x5)
+        (sd (+ x20 (Asm modules)) x5)
 
-        ;; TODO
         ;; add label
-        (ld x5 (+ x10 88))
+        (addi x10 x10 (Module labels))
         (ld x11 x2)
-        (sd x5 x11)
-        (addi x5 x5 16)
-        (sd (+ x10 88) x5)
+        (add x12 x0 x0)
+        (jal x1 (symbol-map16 insert))
+        (ld x10 (+ x2 8))
 
         ;; add to children
         (add x13 x0 x10)
-        (ld x5 (+ x20 24))
-        (addi x10 x5 8)
+        (ld x10 (+ x20 (Asm module)))
+        (addi x10 x10 (Module children))
         (ld x11 x2)
         (addi x12 x0 (Unit Module))
         (add x14 x0 x0)
@@ -2477,24 +2480,17 @@ start
         (bne x10 x0 conflict)
         after-conflict
         (ld x10 (+ x2 8))
-        (sd (+ x20 24) x10)
+        (sd (+ x20 (Asm module)) x10)
         (jal x1 assemble)
         (jal x1 tokenize)
         (subi x5 x10 (Token RightParen))
         (bne x5 x0 unclosed-err)
         ret
         (ld x10 (+ x2 8))
-        (ld x10 x10)
-        (sd (+ x20 24) x10)
+        (ld x10 (+ x10 (Module parent)))
+        (sd (+ x20 (Asm module)) x10)
         (addi x2 x2 16)
         (jal x0 loop)
-
-        resize-modules
-            (add x10 x0 x20)
-            (jal x1 resize-array)
-            (add x5 x0 x10)
-            (ld x10 (+ x2 8))
-            (jal x0 resize-modules-after)
 
         unfinished-err
             (defcon unfinished-msg "Unfinished module declaration")
@@ -5103,6 +5099,7 @@ start
         (sd (+ x2 8) x10)
         (sd (+ x2 16) x11)
         loop
+            (addi x10 x10 (Module children))
             (jal x1 (symbol-map24 get))
             (bne x12 x0 ret)
             (ld x10 (+ x2 8))
