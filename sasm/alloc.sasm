@@ -24,6 +24,7 @@
 (define Malloc::Alignment 7)
 (define Malloc::SIZE_T_SIZE 8)
 (module malloc
+    (beq x10 x0 ret)
     ;; Align(size)
     (addi x10 x10 Malloc::SIZE_T_SIZE)
     (addi x10 x10 Malloc::Alignment)
@@ -65,7 +66,7 @@
     (ld x7 x10)
     (sub x6 x7 x5)
     (addi x28 x0 8)
-    (blt x28 x6 malloc-done)
+    (bge x28 x6 malloc-done)
     (add x28 x10 x5)
     (sd x28 x6)
     (add x7 x0 x5)
@@ -85,6 +86,7 @@
         (ori x7 x7 1)
         (sd x10 x7)
         (addi x10 x10 Malloc::SIZE_T_SIZE)
+    ret
         (jalr x0 x1)
 )
 
