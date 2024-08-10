@@ -5181,7 +5181,8 @@ start
             (sb x7 x31)
             (addi x7 x7 1)
             (addi x5 x5 1)
-            (jal x0 loop)
+            (bne x5 x6 loop)
+            (jal x0 ret)
         escape-empty
             (defcon escape-msg "Unfinished escape code")
             (la x5 escape-msg)
