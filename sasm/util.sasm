@@ -248,8 +248,8 @@
         (ld x12 x10)
         (addi x10 x10 24)
         (beq x12 x0 next)
-        (ld x13 (+ x10 8))
-        (ld x14 (+ x10 16))
+        (ld x13 (- x10 16))
+        (ld x14 (- x10 8))
         (jalr x0 x1)
 
         none
