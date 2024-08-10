@@ -338,11 +338,10 @@ start
     (ecall)
 
     ;; Read input file to buffer
-    ;; mmap(NULL, 64k, PROT_RW, MAP_PRIVATE, fd, 0)
+    ;; mmap(NULL, len, PROT_RW, MAP_PRIVATE, fd, 0)
     (add x14 x0 x30)
     (add x10 x0 x0)
-    (addi x11 x0 1)
-    (slli x11 x11 16)
+    (add x11 x0 x31)
     (addi x12 x0 PROT_RW)
     (addi x13 x0 MAP_PRIVATE)
     (add x15 x0 x0)
