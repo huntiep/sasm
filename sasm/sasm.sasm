@@ -4538,9 +4538,9 @@ start
         (jal x1 tokenize)
         (beq x10 x0 eof)
         (subi x5 x10 (Token LeftParen))
-        (beq x10 x0 path)
+        (beq x5 x0 path)
         (subi x5 x10 (Token RightParen))
-        (beq x10 x0 rparen)
+        (beq x5 x0 rparen)
         (subi x5 x10 (Token Symbol))
         (bne x5 x0 other)
 
