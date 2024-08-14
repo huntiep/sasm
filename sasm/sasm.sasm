@@ -2254,6 +2254,7 @@ start
             (add x10 x11 x5)
             (bge x6 x10 string-resize-after)
                 (ld x10 (+ x2 32))
+                (sd x10 x5)
                 (subi x10 x10 8)
                 (jal x1 resize-array)
                 (add x5 x0 x10)
