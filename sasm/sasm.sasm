@@ -5414,7 +5414,7 @@ start
             (sd (+ x2 refs.capacity) x5)
             (jal x1 follow-path)
             (beq x10 x0 unknown-err)
-            (andi x10 x10 0b110)
+            (andi x10 x10 (Unit mask))
             (subi x10 x10 (Unit Module))
             (bne x10 x0 module-err)
             (lw x10 (+ x11 (Module location)))
