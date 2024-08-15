@@ -441,3 +441,47 @@
     (jalr x0 x1)
 )
 
+;; ARGS:
+;;  x10 - ptr
+;;  x11 - int
+;; RET:
+;;  x10 ptr.end
+(module format-int
+    (beq x11 x0 zero)
+    (beq x11 x0 neg)
+
+    (add x7 x0 x10)
+    (addi x5 x0 10)
+    itoa
+        (rem x6 x11 x5)
+        (div x11 x11 x5)
+        (addi x6 x6 #'0')
+        (sb x7 x6)
+        (addi x7 x7 1)
+        (bne x11 x0 itoa)
+    (subi x5 x7 1)
+    rev
+        (lb x30 x10)
+        (lb x31 x5)
+        (sb x10 x31)
+        (sb x5 x30)
+        (addi x10 x10 1)
+        (subi x5 x5 1)
+        (blt x10 x5 rev)
+    (add x10 x0 x7)
+    (jalr x0 x1)
+
+    neg
+        (addi x5 x0 #'-')
+        (sb x10 x5)
+        (addi x10 x10 1)
+        (addi x7 x10 1)
+        (sub x11 x0 x11)
+        (addi x5 x0 10)
+        (jal x0 itoa)
+    zero
+        (addi x5 x0 #'0')
+        (sb x10 x5)
+        (addi x10 x10 1)
+        (jalr x0 x1)
+)
