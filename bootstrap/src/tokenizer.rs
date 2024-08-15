@@ -165,7 +165,7 @@ impl Tokenizer {
         } else if line >= self.lines.len() {
             self.lines.last().unwrap().1
         } else {
-            self.lines[line].1
+            self.lines[line].0
         };
         let mut e = start;
         while e < self.input.len() && self.input[e] != b'\n' {
@@ -211,8 +211,8 @@ impl Tokenizer {
             self.position = self.lines[line].1;
             self.lines.truncate(line + 1);
         }
-        self.token_info.push(TokenInfo { start: start-1, end: self.position, line: line });
-        Some(Token::String(start, (self.position - 1 - start) as u32))
+        self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
+        Some(Token::String(start+1, (self.position - start - 2) as u32))
     }
 
     fn parse_literal(&mut self) -> Option<Token> {
