@@ -261,7 +261,7 @@ impl Tokenizer {
                     if c == b'\n' {
                         self.newline();
                     }
-                    self.print_err(start, line, &format!("Bad escape sequence `\\{}` in char literal", c as char), "");
+                    self.print_err(start, line, &format!("Bad escape sequence `\\{}` in character literal", c as char), "");
                     b'\0'
                 }
             }
@@ -269,7 +269,7 @@ impl Tokenizer {
         };
 
         if Some(b'\'') != self._next() {
-            self.print_err(start, line, "Unclosed char literal", "");
+            self.print_err(start, line, "Unclosed character literal", "");
         }
         self.token_info.push(TokenInfo { start: start, end: self.position, line: line });
         Some(Token::Char(ch))

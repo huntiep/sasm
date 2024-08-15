@@ -63,7 +63,7 @@ fn main() {
 
     symbols::init();
     if (std::path::Path::new(&input_file)).is_dir() {
-            eprintln!("Error: Expected file, got directory: {}", input_file);
+            eprintln!("Error: Expected file, got directory `{}`.", input_file);
             exit(1);
     }
     let input = match read_file(&input_file) {
