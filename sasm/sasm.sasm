@@ -3616,7 +3616,7 @@ start
             (jal x0 print-sym)
 
         (defcon funct3-table #(0 0 4 6 7 1 5 5 2 3 0 4 6    ;; r
-                               0 0 4 6 7 1 5 5 2 3          ;; i
+                               0 0 4 6 7 2 3 5 1 5          ;; i
                                0 1 2 3 4 5 6                ;; i2
                                0 1 2 3                      ;; s
                                0 1 4 5 6 7))                ;; b
@@ -3663,9 +3663,12 @@ start
             (subi x5 x24 Instr::subi)
             (bne x5 x0 iin-after-sub)
             (sub x10 x0 x10)
+            (jal x0 iin-after-srai)
         iin-after-sub
-            ;; TODO: range for shifts
             (subi x5 x24 Instr::srai)
+            (blt x5 x0 iin-after-srai)
+            (addi x6 x0 64)
+            (bgeu x10 x6 iin-shift-range)
             (bne x5 x0 iin-after-srai)
             (addi x5 x0 0x20)
             (slli x5 x5 5)
@@ -3686,7 +3689,14 @@ start
             (addi x6 x0 (len iin-msg))
             (la x7 iin-msg2)
             (addi x8 x0 (len iin-msg2))
-            (add x10 x0 x11)
+            (jal x1 print-err-int)
+            (jal x0 push)
+        iin-shift-range
+            (defcon iin-shift-msg "` out of range [0, 64]")
+            (la x5 iin-msg)
+            (addi x6 x0 (len iin-msg))
+            (la x7 iin-shift-msg)
+            (addi x8 x0 (len iin-shift-msg))
             (jal x1 print-err-int)
             (jal x0 push)
 
