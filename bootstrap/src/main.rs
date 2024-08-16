@@ -854,7 +854,7 @@ impl Asm {
 
     fn handle_opcode(&mut self, symbol: usize) {
         const FUNCT3: [u32; 40] = [0, 0, 4, 6, 7, 1, 5, 5, 2, 3, 0, 4, 6,   // r
-                                   0, 0, 4, 6, 7, 1, 5, 5, 2, 3,            // i
+                                   0, 0, 4, 6, 7, 2, 3, 5, 1, 5,            // i
                                    0, 1, 2, 3, 4, 5, 6,                     // i2
                                    0, 1, 2, 3,                              // s
                                    0, 1, 4, 5, 6, 7];                       // b
@@ -879,12 +879,18 @@ impl Asm {
             let mut imm = self.unwrap_imm();
             if symbol == symbols::SUBI {
                 imm = -imm;
-            } else if symbol == symbols::SRAI {
-                imm = imm | (0x20 << 5);
+            } else if symbol >= symbols::SRAI {
+                if imm as u32 > 64 {
+                    self.print_err(&format!("Immediate `{}` out of range [0, 64]", imm), "");
+                    imm = 0;
+                }
+                if symbol == symbols::SRAI {
+                    imm = imm | (0x20 << 5);
+                }
             }
             if imm >= 2048 || imm < -2048 {
                 self.print_err(&format!("Immediate `{}` out of range [-2048, 2048)", imm), "");
-                imm = 0
+                imm = 0;
             }
             ((imm as i32 as u32) << 20) | (rs1 << 15) | (FUNCT3[symbol - symbols::ADD] << 12) | (rd << 7) | 0b0010011
         // I2 instructions

@@ -71,7 +71,7 @@ pub fn init() {
     get_symbol(b"x28".to_vec());
     get_symbol(b"x29".to_vec());
     get_symbol(b"x30".to_vec());
-    assert_eq!(get_symbol(b"x31".to_vec()), 32);
+    assert_eq!(get_symbol(b"x31".to_vec()), X31);
 
     get_symbol(b"add".to_vec());
     get_symbol(b"sub".to_vec());
@@ -85,18 +85,18 @@ pub fn init() {
     get_symbol(b"sltu".to_vec());
     get_symbol(b"mul".to_vec());
     get_symbol(b"div".to_vec());
-    get_symbol(b"rem".to_vec());
+    assert_eq!(get_symbol(b"rem".to_vec()), LAST_R);
 
     get_symbol(b"addi".to_vec());
     get_symbol(b"subi".to_vec());
     get_symbol(b"xori".to_vec());
     get_symbol(b"ori".to_vec());
     get_symbol(b"andi".to_vec());
-    get_symbol(b"slli".to_vec());
-    get_symbol(b"srli".to_vec());
-    get_symbol(b"srai".to_vec());
     get_symbol(b"slti".to_vec());
     get_symbol(b"sltiu".to_vec());
+    get_symbol(b"srai".to_vec());
+    get_symbol(b"slli".to_vec());
+    assert_eq!(get_symbol(b"srli".to_vec()), LAST_I);
 
     get_symbol(b"lb".to_vec());
     get_symbol(b"lh".to_vec());
@@ -104,19 +104,19 @@ pub fn init() {
     get_symbol(b"ld".to_vec());
     get_symbol(b"lbu".to_vec());
     get_symbol(b"lhu".to_vec());
-    get_symbol(b"lwu".to_vec());
+    assert_eq!(get_symbol(b"lwu".to_vec()), LAST_I2);
 
     get_symbol(b"sb".to_vec());
     get_symbol(b"sh".to_vec());
     get_symbol(b"sw".to_vec());
-    get_symbol(b"sd".to_vec());
+    assert_eq!(get_symbol(b"sd".to_vec()), LAST_S);
 
     get_symbol(b"beq".to_vec());
     get_symbol(b"bne".to_vec());
     get_symbol(b"blt".to_vec());
     get_symbol(b"bge".to_vec());
     get_symbol(b"bltu".to_vec());
-    get_symbol(b"bgeu".to_vec());
+    assert_eq!(get_symbol(b"bgeu".to_vec()), LAST_B);
 
     get_symbol(b"jal".to_vec());
     get_symbol(b"jalr".to_vec());
