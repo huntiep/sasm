@@ -3876,9 +3876,22 @@ start
             (jal x1 unwrap-offset)
             (slli x10 x10 15)
             (or x23 x23 x10)
-            ;; TODO: check range x11
+            (addi x5 x0 -2048)
+            (blt x11 x5 jalr-range)
+            (sub x5 x0 x5)
+            (bge x11 x5 jalr-range)
             (slli x11 x11 20)
             (or x23 x23 x11)
+            (jal x0 push)
+        jalr-range
+            (defcon jalr-msg "Offset `")
+            (defcon jalr-msg2 "` out of range [-2048, 2048)")
+            (la x5 jalr-msg)
+            (addi x6 x0 (len jalr-msg))
+            (la x7 jalr-msg2)
+            (addi x8 x0 (len jalr-msg2))
+            (add x10 x0 x11)
+            (jal x1 print-err-int)
             (jal x0 push)
 
         lui
