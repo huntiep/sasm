@@ -880,7 +880,7 @@ impl Asm {
             if symbol == symbols::SUBI {
                 imm = -imm;
             } else if symbol >= symbols::SRAI {
-                if imm as u32 > 64 {
+                if imm as u32 >= 64 {
                     self.print_err(&format!("Immediate `{}` out of range [0, 64]", imm), "");
                     imm = 0;
                 }
