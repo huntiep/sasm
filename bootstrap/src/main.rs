@@ -561,7 +561,7 @@ impl Asm {
                 fp.push(f.file_name().unwrap());
                 let path = get_symbol(f.file_stem().unwrap().as_encoded_bytes().to_vec());
                 if let Some(m) = self.import_dir(fp, m_id) {
-                    self.get_mod().children.insert(path, (true, Unit::Module(m)));
+                    self.get_mod().children.insert(path, (false, Unit::Module(m)));
                 }
             } else {
                 let f = f.path();
@@ -572,7 +572,7 @@ impl Asm {
                 fp.push(f.file_name().unwrap());
                 let path = get_symbol(f.file_stem().unwrap().as_encoded_bytes().to_vec());
                 if let Some(m) = self.import_file(path, fp, m_id) {
-                    self.get_mod().children.insert(path, (true, Unit::Module(m)));
+                    self.get_mod().children.insert(path, (false, Unit::Module(m)));
                 }
             }
         }
