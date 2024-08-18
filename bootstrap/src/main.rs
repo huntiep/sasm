@@ -616,6 +616,7 @@ impl Asm {
         Some(m_id)
     }
 
+    // TODO: use 1 or u32::MAX for ident on error?
     fn handle_module(&mut self) {
         let ident = match self.next() {
             Some(Token::Symbol(s)) => s,
@@ -642,9 +643,14 @@ impl Asm {
         }
         self.module = m_id;
         self.modules.push(module);
+        // TODO: maybe loop here?
         self.assemble();
         if self.next() != Some(Token::RParen) {
-            self.print_err(&format!("Unclosed module `{}`", get_value(ident)), "");
+            if ident == 0 {
+                self.print_err("Unclosed module", "");
+            } else {
+                self.print_err(&format!("Unclosed module `{}`", get_value(ident)), "");
+            }
         }
 
         self.module = self.get_mod().parent.unwrap();
