@@ -2059,12 +2059,13 @@ start
         (bne x10 x0 recursive-err)
 
         (jal x1 tokenize)
-        (beq x10 x0 eof-free)
+        (beq x10 x0 eof-continue)
         (subi x5 x10 (Token String))
         (beq x5 x0 multiple-err)
         (subi x5 x10 (Token RightParen))
         (bne x5 x0 expr-err)
 
+        continue
         (ld x10 x2)
         (ld x11 (+ x2 8))
         ;; room for null terminator
@@ -2111,9 +2112,6 @@ start
         (addi x2 x2 16)
         (jal x0 loop)
 
-        eof-free
-            (ld x10 x2)
-            (jal x1 free)
         eof
             (defcon eof-msg "Unexpected EOF in `include!`")
             (la x5 eof-msg)
@@ -2145,20 +2143,26 @@ start
             (la x5 recursive-msg)
             (addi x6 x0 (len recursive-msg))
             (jal x0 print-skip)
+        eof-continue
+            (la x5 eof-msg)
+            (addi x6 x0 (len eof-msg))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 continue)
         multiple-err
             (defcon multiple-msg "Each file needs its own include statement")
-            (ld x10 x2)
-            (jal x1 free)
             (la x5 multiple-msg)
             (addi x6 x0 (len multiple-msg))
-            (jal x0 print-skip)
+            (jal x0 print-skip-continue)
         expr-err
             (defcon expr-msg "Unexpected expression in include statement")
-            (ld x10 x2)
-            (jal x1 free)
             (la x5 expr-msg)
             (addi x6 x0 (len expr-msg))
-            (jal x0 print-skip)
+        print-skip-continue
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x1 skip-opcode)
+            (jal x0 continue)
         read-err
             (defcon read-msg "Error executing `include!`")
             (la x5 read-msg)
@@ -2209,6 +2213,7 @@ start
 
         ret
         (jal x1 tokenize)
+        (beq x10 x0 closer-eof)
         (subi x10 x10 (Token RightParen))
         (beq x10 x0 retret)
         ;; backtrack
@@ -2245,6 +2250,12 @@ start
         (addi x2 x2 16)
         (jal x0 loop)
 
+        closer-eof
+            (la x5 unclosed-msg)
+            (addi x6 x0 (len unclosed-msg))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 retret)
         eof
             (defcon eof-msg "Unexpected EOF in definition `")
             (defcon eof-msg2 "` at end of file")
@@ -2470,6 +2481,7 @@ start
 
         closer
         (jal x1 tokenize)
+        (beq x10 x0 closer-eof)
         (subi x10 x10 (Token RightParen))
         (beq x10 x0 retret)
         ;; backtrack
@@ -2506,6 +2518,12 @@ start
         (addi x2 x2 48)
         (jal x0 loop)
 
+        closer-eof
+            (la x5 unclosed-msg)
+            (addi x6 x0 (len unclosed-msg))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 retret)
         eof
             (defcon eof-msg "Unexpected EOF in definition `")
             (defcon eof-msg2 "` at end of file")
@@ -2646,12 +2664,18 @@ start
             (defcon unclosed-msg "Unclosed module `")
             (la x5 unclosed-msg)
             (addi x6 x0 (len unclosed-msg))
+            (ld x10 x2)
+            (beq x10 x0 unclosed-err-none)
             (add x7 x5 x6)
             (subi x7 x7 1)
             (addi x8 x0 1)
-            (ld x10 x2)
             (add x11 x0 x0)
             (jal x1 print-err-symbol)
+            (jal x0 ret)
+        unclosed-err-none
+            (subi x6 x6 2)
+            (add x7 x0 x0)
+            (jal x1 print-err)
             (jal x0 ret)
     )
 
@@ -4253,7 +4277,7 @@ start
         (bne x5 x0 other-err)
 
         (jal x1 tokenize)
-        (beq x10 x0 path-eof)
+        (beq x10 x0 path-eof-err)
         (subi x5 x10 (Token RightParen))
         (beq x5 x0 empty)
         (subi x5 x10 (Token Symbol))
@@ -4462,6 +4486,12 @@ start
             (addi x8 x0 (len symun-msg2))
             (jal x0 print-var)
 
+        path-eof-err
+            (defcon path-eof-msg "Expectde path in expression, got EOF")
+            (la x5 path-eof-msg)
+            (addi x6 x0 (len path-eof-msg))
+            (add x7 x0 x0)
+            (jal x1 print-err)
         path-eof
             (add x10 x0 x0)
             (ld x1 x2)
@@ -4568,6 +4598,7 @@ start
 
         close
             (jal x1 tokenize)
+            (beq x10 x0 closer-err)
             (subi x10 x10 (Token RightParen))
             (beq x10 x0 close-neg)
             ;; backtrack
@@ -4590,6 +4621,13 @@ start
             (ld x1 (+ x2 24))
             (addi x2 x2 32)
             (jalr x0 x1)
+
+        closer-err
+            (la x5 close-msg)
+            (addi x6 x0 (len close-msg))
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x0 close-neg)
 
         eof
             (defcon eof-msg "Unexpected EOF in expression")

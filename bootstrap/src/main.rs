@@ -733,15 +733,21 @@ impl Asm {
             None => return self.print_err(&format!("Unexpected EOF in definition `{}` at end of file", get_value(ident)), ""),
         }
 
-        if Some(Token::RParen) != self.next() {
-            self.backtrack();
-            let (line, _, _) = self.info();
-            self.print_err("Unclosed definition", "");
-            self.next();
-            if self.same_line(line) {
-                self.skip_opcode();
-            } else {
+        match self.next() {
+            Some(Token::RParen) => (),
+            None => {
+                self.print_err("Unclosed definition", "");
+            }
+            Some(_) => {
                 self.backtrack();
+                let (line, _, _) = self.info();
+                self.print_err("Unclosed definition", "");
+                self.next();
+                if self.same_line(line) {
+                    self.skip_opcode();
+                } else {
+                    self.backtrack();
+                }
             }
         }
     }
@@ -839,15 +845,21 @@ impl Asm {
             None => return self.print_err(&format!("Unexpected EOF in definition `{}` at end of file", get_value(ident)), ""),
         }
 
-        if Some(Token::RParen) != self.next() {
-            self.backtrack();
-            let (line, _, _) = self.info();
-            self.print_err("Unclosed definition", "");
-            self.next();
-            if self.same_line(line) {
-                self.skip_opcode();
-            } else {
+        match self.next() {
+            Some(Token::RParen) => (),
+            None => {
+                self.print_err("Unclosed definition", "");
+            }
+            Some(_) => {
                 self.backtrack();
+                let (line, _, _) = self.info();
+                self.print_err("Unclosed definition", "");
+                self.next();
+                if self.same_line(line) {
+                    self.skip_opcode();
+                } else {
+                    self.backtrack();
+                }
             }
         }
     }
@@ -1059,6 +1071,10 @@ impl Asm {
         match self.next() {
             Some(Token::LParen) => {
                 match self.next() {
+                    None => {
+                        self.print_err("Expected path in expression, got EOF", "");
+                        return 0;
+                    }
                     Some(Token::RParen) => {
                         self.print_err("Empty path in expression", "");
                         return 0;
@@ -1232,10 +1248,16 @@ impl Asm {
             }
         };
 
-        if self.next() != Some(Token::RParen) {
-            self.backtrack();
-            self.print_err("Expected closing parenthesis in expression offset", "");
-            self.skip_opcode();
+        match self.next() {
+            Some(Token::RParen) => (),
+            None => {
+                self.print_err("Expected closing parenthesis in expression offset", "");
+            }
+            Some(_) => {
+                self.backtrack();
+                self.print_err("Expected closing parenthesis in expression offset", "");
+                self.skip_opcode();
+            }
         }
         if neg {
             imm = -imm;
