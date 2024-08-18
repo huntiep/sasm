@@ -132,9 +132,9 @@ fn read_file<P: AsRef<std::path::Path>>(path: P) -> Result<Vec<u8>, String> {
 fn assemble(tokenizer: Box<Tokenizer>) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usize, usize, bool)>) {
     let mut root = Module::new(0, None, true);
     let mut path: PathBuf = tokenizer.filename.clone().into();
+    let name = get_symbol(path.file_stem().unwrap().as_encoded_bytes().to_vec());
     path.pop();
     root.path = path;
-    let name = get_symbol(tokenizer.filename.rsplitn(2, '.').last().unwrap().as_bytes().to_vec());
     root.children.insert(name, (false, Unit::Module(1)));
 
     let mut asm = Asm {
