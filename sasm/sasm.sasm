@@ -2769,7 +2769,7 @@ start
         closer-after
         (ld x5 x2)
         (ld x6 (+ x2 8))
-        (beq x5 x0 empty-path)
+        (beq x5 x6 empty-path)
         (addi x7 x5 8)
         (bne x7 x6 preloop)
         (ld x7 x5)
@@ -3117,6 +3117,8 @@ start
             (jal x0 closer-after)
         empty-path
             (defcon empty-path-msg "Empty path in import statement")
+            (add x10 x0 x5)
+            (jal x1 free)
             (la x5 empty-path-msg)
             (addi x6 x0 (len empty-path-msg))
             (addi x2 x2 16)
@@ -3973,7 +3975,7 @@ start
             (bne x5 x0 la-other)
         la-path
             (jal x1 unwrap-path)
-            (beq x10 x0 la-empty)
+            (beq x10 x11 la-empty)
             (subi x5 x11 8)
             (bne x10 x5 la-follow)
             (addi x5 x0 Register::x31)
@@ -4062,21 +4064,26 @@ start
             (defcon la-other-msg "Expected path as argument to `la` instruction")
             (la x5 la-other-msg)
             (addi x6 x0 (len la-other-msg))
-        la-err-skip
             (add x7 x0 x0)
             (jal x1 print-err)
             (jal x1 skip-opcode)
             (jal x0 loop)
         la-empty
             (defcon la-empty-msg "Expected non-empty path as argument to `la` instruction")
+            (jal x1 free)
             (la x5 la-empty-msg)
             (addi x6 x0 (len la-empty-msg))
             (jal x0 la-err-skip)
         la-reg
             (defcon la-reg-msg "Expected path as argument to `la` instruction, got register")
+            (jal x1 free)
             (la x5 la-reg-msg)
             (addi x6 x0 (len la-reg-msg))
-            (jal x0 la-err-skip)
+        la-err-skip
+            (add x7 x0 x0)
+            (jal x1 print-err)
+            (jal x1 skip-opcode)
+            (jal x0 loop)
 
         la-global
             (defcon la-global-msg "Global `")
@@ -4319,6 +4326,7 @@ start
             (jal x0 len-closer)
         len-empty
             (defcon lenempty-msg "Empty path in `len` expression")
+            (jal x1 free)
             (la x5 lenempty-msg)
             (addi x6 x0 (len lenempty-msg))
             (add x7 x0 x0)
@@ -4343,7 +4351,7 @@ start
 
         len-path
             (jal x1 unwrap-path)
-            (beq x10 x0 len-empty)
+            (beq x10 x11 len-empty)
             (subi x2 x2 8)
             (sd x2 x11)
             (sd (+ x2 8) x10)
@@ -4395,7 +4403,7 @@ start
             (subi x5 x5 16)
             (sd (+ x21 (Tokenizer token_pos)) x5)
             (jal x1 unwrap-path)
-            (beq x10 x0 path-eof)
+            (beq x10 x11 path-eof)
             (subi x2 x2 16)
             (sd x2 x10)
             (sd (+ x2 8) x11)
@@ -4771,7 +4779,7 @@ start
 
         path
             (jal x1 unwrap-path)
-            (beq x10 x0 path-err)
+            (beq x10 x11 path-err)
             (ld x5 (+ x20 (Asm module)))
             (ld x7 (+ x5 (Module refs)))
             (ld x8 (+ x5 (Module refs.capacity)))
@@ -4806,6 +4814,7 @@ start
 
         path-err
             (defcon path-msg "Expected non-empty path in instruction")
+            (jal x1 free)
             (la x5 path-msg)
             (addi x6 x0 (len path-msg))
             (add x7 x0 x0)
@@ -4852,11 +4861,11 @@ start
 
         (subi x2 x2 8)
         (sd x2 x1)
-        (addi x10 x0 64)
+        (addi x10 x0 16)
         (jal x1 malloc)
         (add x25 x0 x10)
         (add x26 x0 x10)
-        (addi x27 x10 64)
+        (addi x27 x10 16)
 
         (jal x1 tokenize)
         (subi x5 x10 (Token Symbol))
@@ -4886,7 +4895,7 @@ start
             (add x10 x0 x25)
             (sub x11 x26 x25)
             (slli x11 x11 1)
-            (jal x1 malloc)
+            (jal x1 realloc)
             (sub x26 x26 x25)
             (slli x27 x26 1)
             (add x25 x0 x10)
@@ -4936,8 +4945,7 @@ start
             (jal x1 skip-opcode)
         err-ret
             (add x10 x0 x25)
-            (jal x1 free)
-            (add x10 x0 x0)
+            (add x11 x0 x25)
             (ld x1 x2)
             (addi x2 x2 8)
             (jalr x0 x1)
