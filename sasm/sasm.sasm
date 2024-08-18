@@ -4141,7 +4141,7 @@ start
             (subi x5 x10 (Token RightParen))
             (bne x5 x0 loop)
         (ld x1 x2)
-        (addi x2 x2 8)
+        (addi x2 x2 16)
         (jalr x0 x1)
 
         lparen
@@ -4170,7 +4170,7 @@ start
             (add x7 x0 x0)
             (jal x1 print-err)
             (ld x1 x2)
-            (addi x2 x2 8)
+            (addi x2 x2 16)
             (jalr x0 x1)
     )
 
