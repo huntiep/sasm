@@ -1947,6 +1947,7 @@ start
         (jal x0 handle-opcode)
 
         rparen
+            ;; backtrack
             (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
             (sd (+ x21 (Tokenizer token_pos)) x5)
@@ -2626,9 +2627,9 @@ start
             (add x7 x0 x0)
             (jal x1 print-err)
             ;; backtrack
-            (ld x5 (+ x21 24))
+            (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
-            (sd (+ x21 24) x5)
+            (sd (+ x21 (Tokenizer token_pos)) x5)
             (add x11 x0 x0)
             (jal x0 continue)
         conflict
@@ -4103,9 +4104,9 @@ start
         lparen-err
             (defcon lparen-msg "Unclosed instruction")
             ;; backtrack
-            (ld x5 (+ x21 24))
+            (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
-            (sd (+ x21 24) x5)
+            (sd (+ x21 (Tokenizer token_pos)) x5)
             (la x5 lparen-msg)
             (addi x6 x0 (len lparen-msg))
             (add x7 x0 x0)
@@ -4122,11 +4123,11 @@ start
     )
 
     (module skip-opcode
-        (ld x5 (+ x21 32))
-        (ld x6 (+ x21 24))
+        (ld x5 (+ x21 (Tokenizer tokens.start)))
+        (ld x6 (+ x21 (Tokenizer token_pos)))
         (sub x5 x6 x5)
         (subi x5 x5 16)
-        (ld x6 (+ x21 56))
+        (ld x6 (+ x21 (Tokenizer token_info.start)))
         (add x5 x6 x5)
         (lw x6 x5)
 
@@ -4145,20 +4146,20 @@ start
         (jalr x0 x1)
 
         lparen
-            (ld x5 (+ x21 32))
-            (ld x6 (+ x21 24))
+            (ld x5 (+ x21 (Tokenizer tokens.start)))
+            (ld x6 (+ x21 (Tokenizer token_pos)))
             (sub x5 x6 x5)
             (subi x5 x5 16)
-            (ld x6 (+ x21 56))
+            (ld x6 (+ x21 (Tokenizer token_info.start)))
             (add x5 x6 x5)
             (lw x5 x5)
             (lw x6 (+ x2 8))
             (beq x5 x6 loop)
             (defcon lparen-msg "Unclosed expression")
             ;; backtrack
-            (ld x5 (+ x21 24))
+            (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
-            (sd (+ x21 24) x5)
+            (sd (+ x21 (Tokenizer token_pos)) x5)
             (la x5 lparen-msg)
             (addi x6 x0 (len lparen-msg))
             (jal x0 err-ret)
@@ -4196,9 +4197,9 @@ start
 
         paren
             ;; backtrack
-            (ld x5 (+ x21 24))
+            (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
-            (sd (+ x21 24) x5)
+            (sd (+ x21 (Tokenizer token_pos)) x5)
         expected
             (defcon expected-msg "Expected register in instruction")
             (la x5 expected-msg)
@@ -4789,9 +4790,9 @@ start
             (add x7 x0 x0)
             (jal x1 print-err)
             ;; backtrack
-            (ld x5 (+ x21 24))
+            (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
-            (sd (+ x21 24) x5)
+            (sd (+ x21 (Tokenizer token_pos)) x5)
         err-ret
             (add x10 x0 x0)
             (ld x1 x2)
