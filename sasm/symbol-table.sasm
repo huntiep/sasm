@@ -466,6 +466,7 @@
 ;;  x10 - string
 ;;  x11 - string.len
 (module symbol->string
+    (beq x10 x0 err)
     (la x5 SYMBOL-TABLE.len)
     (ld x5 x5)
     (blt x5 x10 err)
