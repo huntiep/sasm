@@ -486,7 +486,7 @@
     (jalr x0 x1)
 
     err
-        (defcon panic "INVARIANT BROKEN in `symbol->string()`")
+        (defcon panic "INVARIANT BROKEN in `symbol->string()`\n")
         (addi x10 x0 STDERR)
         (la x11 panic)
         (addi x12 x0 (len panic))
