@@ -3693,7 +3693,7 @@ start
             (jal x1 print-err-int)
             (jal x0 push)
         iin-shift-range
-            (defcon iin-shift-msg "` out of range [0, 64]")
+            (defcon iin-shift-msg "` out of range [0, 64)")
             (la x5 iin-msg)
             (addi x6 x0 (len iin-msg))
             (la x7 iin-shift-msg)

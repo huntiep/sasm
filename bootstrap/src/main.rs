@@ -881,7 +881,7 @@ impl Asm {
                 imm = -imm;
             } else if symbol >= symbols::SRAI {
                 if imm as u32 >= 64 {
-                    self.print_err(&format!("Immediate `{}` out of range [0, 64]", imm), "");
+                    self.print_err(&format!("Immediate `{}` out of range [0, 64)", imm), "");
                     imm = 0;
                 }
                 if symbol == symbols::SRAI {
