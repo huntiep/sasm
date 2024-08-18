@@ -1161,7 +1161,7 @@ impl Asm {
                         0
                     }
                     None => {
-                        self.print_err(&format!("Unknown variable `{}` in expression", get_value(s)), "");
+                        self.print_err(&format!("Variable `{}` not defined/imported at use", get_value(s)), "");
                         0
                     }
                 }
