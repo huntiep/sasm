@@ -5279,7 +5279,7 @@ start
         (sd x2 x1)
         (sd (+ x2 8) x11)
         (sd (+ x2 16) x12)
-        (add x10 x0 x12)
+        (addi x10 x12 1)
         (jal x1 malloc)
         (ld x1 x2)
         (ld x5 (+ x2 8))
