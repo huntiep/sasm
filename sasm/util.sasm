@@ -451,8 +451,9 @@
 ;; RET:
 ;;  x10 ptr.end
 (module format-int
+;; 0x400000fd8
     (beq x11 x0 zero)
-    (beq x11 x0 neg)
+    (blt x11 x0 neg)
 
     (add x7 x0 x10)
     (addi x5 x0 10)
@@ -479,7 +480,7 @@
         (addi x5 x0 #'-')
         (sb x10 x5)
         (addi x10 x10 1)
-        (addi x7 x10 1)
+        (add x7 x0 x10)
         (sub x11 x0 x11)
         (addi x5 x0 10)
         (jal x0 itoa)
