@@ -1995,9 +1995,8 @@ start
     ;; ARGS:
     ;;  x11: symbol
     (module add-label
-        (subi x2 x2 16)
+        (subi x2 x2 8)
         (sd x2 x1)
-        (sd (+ x2 8) x11)
 
         (ld x10 (+ x20 (Asm module)))
         (addi x10 x10 (Module labels))
@@ -2014,12 +2013,11 @@ start
         (ld x6 (+ x10 (Module code)))
         (sub x12 x6 x5)
         (addi x10 x10 (Module labels))
-        (ld x11 (+ x2 8))
         (add x13 x0 x0)
         (jal x1 (symbol-map16 insert))
         ret
         (ld x1 x2)
-        (addi x2 x2 16)
+        (addi x2 x2 8)
         (jalr x0 x1)
 
         duplicate-err
