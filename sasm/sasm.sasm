@@ -1700,7 +1700,7 @@ start
 
     jrange
         (defcon j-msg "Jump to `")
-        (defcon j-msg2 "` too far.")
+        (defcon j-msg2 "` too far.\n")
         (la x5 j-msg)
         (addi x6 x0 (len j-msg))
         (jal x0 print)
@@ -4363,10 +4363,13 @@ start
             (subi x5 x10 (Token RightParen))
             (beq x5 x0 len-ret)
             (defcon lenargs-msg "Too many arguments or missing parenthesis in `len` expression")
+            (subi x5 x10 (Token LeftParen))
+            (bne x5 x0 len-closer-no-backtrack)
             ;; backtrack
             (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
             (sd (+ x21 (Tokenizer token_pos)) x5)
+        len-closer-no-backtrack
             (la x5 lenargs-msg)
             (addi x6 x0 (len lenargs-msg))
             (add x7 x0 x0)
@@ -4467,7 +4470,7 @@ start
             (defcon symcon-msg2 "` must be a constant in expression")
             (la x5 symcon-msg)
             (addi x6 x0 (len symcon-msg))
-            (la x7 symcon-msg)
+            (la x7 symcon-msg2)
             (addi x8 x0 (len symcon-msg2))
         print-var
             (ld x10 x2)
@@ -4478,21 +4481,23 @@ start
             (add x10 x0 x0)
             (jalr x0 x1)
         symbol-unknown
-            (defcon symun-msg "Unknown variable `")
-            (defcon symun-msg2 "` in expression")
-            (la x5 symun-msg)
-            (addi x6 x0 (len symun-msg))
-            (la x7 symun-msg)
-            (addi x8 x0 (len symun-msg2))
+            (defcon pathun-msg "` not defined/imported at use")
+            (la x5 symcon-msg)
+            (addi x6 x0 (len symcon-msg))
+            (la x7 pathun-msg)
+            (addi x8 x0 (len pathun-msg))
             (jal x0 print-var)
 
+        path-eof
+            (jal x1 free)
+            (jal x0 path-eof-ret)
         path-eof-err
-            (defcon path-eof-msg "Expectde path in expression, got EOF")
+            (defcon path-eof-msg "Expected path in expression, got EOF")
             (la x5 path-eof-msg)
             (addi x6 x0 (len path-eof-msg))
             (add x7 x0 x0)
             (jal x1 print-err)
-        path-eof
+        path-eof-ret
             (add x10 x0 x0)
             (ld x1 x2)
             (addi x2 x2 8)
@@ -4515,7 +4520,6 @@ start
             (add x10 x0 x0)
             (jalr x0 x1)
         path-unknown
-            (defcon pathun-msg "` not defined/imported at use")
             (la x7 pathun-msg)
             (addi x8 x0 (len pathun-msg))
             (jal x0 path-print)
@@ -4560,11 +4564,11 @@ start
 
         get
             (jal x1 tokenize)
+            (beq x10 x0 offset-eof)
             ;; backtrack
             (ld x5 (+ x21 (Tokenizer token_pos)))
             (subi x5 x5 16)
             (sd (+ x21 (Tokenizer token_pos)) x5)
-            (beq x10 x0 offset-eof)
             (subi x5 x10 (Token RightParen))
             (beq x5 x0 reg/imm)
             (subi x5 x10 (Token Integer))
@@ -4660,7 +4664,7 @@ start
             (sd (+ x21 (Tokenizer token_pos)) x5)
             (jal x0 err-ret)
         offset-eof
-            (defcon offset-eof-msg "Unexepcted EOF in expression offset")
+            (defcon offset-eof-msg "Unexpected EOF in expression offset")
             (la x5 offset-eof-msg)
             (addi x6 x0 (len offset-eof-msg))
             (jal x0 err-print)
@@ -4905,15 +4909,16 @@ start
 
         warn
             (defcon warn-msg "Unnecessary parenthesis in path")
-            (ld x5 (+ x21 120))
+            (ld x5 (+ x21 (Tokenizer err)))
             (subi x2 x2 8)
             (sd x2 x5)
             (la x5 warn-msg)
             (addi x6 x0 (len warn-msg))
+            (add x7 x0 x0)
             (jal x1 print-err)
             (ld x5 x2)
             (addi x2 x2 8)
-            (sd (+ x21 120) x5)
+            (sd (+ x21 (Tokenizer err)) x5)
             (jal x0 ret)
         eof
             (defcon eof-msg "Unexpected EOF in path")
@@ -5633,23 +5638,31 @@ start
         (jalr x0 x1)
 
         unknown-err
-            (defcon unknown-msg "Unknown module/label `.")
+            (defcon unknown-msg "Unknown module/label `.\n")
             (la x5 unknown-msg)
             (addi x6 x0 (len unknown-msg))
             (jal x0 err-cont)
         module-err
-            (defcon module-msg "Expected module at path `.")
+            (defcon module-msg "Expected module at path `.\n")
             (la x5 module-msg)
             (addi x6 x0 (len module-msg))
         err-cont
-            (subi x6 x6 1)
+            (subi x6 x6 2)
             (add x7 x5 x6)
             (subi x7 x7 1)
-            (addi x8 x0 2)
+            (addi x8 x0 3)
             (ld x11 (+ x2 48))
             (ld x10 (+ x11 8))
             (ld x11 (+ x11 16))
-            (jal x1 print-err-path)
+            (jal x1 format-err-path)
+            (addi x10 x0 STDERR)
+            (add x11 x0 x5)
+            (add x12 x0 x6)
+            (addi x17 x0 SYS_WRITE)
+            (ecall)
+            ;; free(msg)
+            (add x10 x0 x11)
+            (jal x1 free)
             (addi x10 x0 1)
             (jal x0 ref-loop-continue)
     )
@@ -5680,7 +5693,12 @@ start
     ;;  x11 - path.end
     ;;  x12 - note
     ;;  x13 - note.len
-    (module print-err-path
+    ;; RET:
+    ;;  x5 - msg
+    ;;  x6 - msg.len
+    ;;  x7 - note
+    ;;  x8 - note.len
+    (module format-err-path
         (subi x2 x2 72)
         (sd x2 x1)
         (sd (+ x2 8) x5)
@@ -5707,17 +5725,39 @@ start
         (ld x11 (+ x2 24))
         (ld x12 (+ x2 32))
         (jal x1 strdup)
+        (sd (+ x2 16) x10)
+        ;; free(path-string)
+        (ld x10 (+ x2 40))
+        (jal x1 free)
         (ld x5 (+ x2 8))
-        (sub x6 x10 x5)
+        (ld x6 (+ x2 16))
+        (sub x6 x6 x5)
         (ld x7 (+ x2 56))
         (ld x8 (+ x2 64))
+        (ld x1 x2)
+        (addi x2 x2 72)
+        (jalr x0 x1)
+    )
+
+    ;; ARGS:
+    ;;  x5 - msg
+    ;;  x6 - msg.len
+    ;;  x7 - msg2
+    ;;  x8 - msg2.len
+    ;;  x10 - path
+    ;;  x11 - path.end
+    ;;  x12 - note
+    ;;  x13 - note.len
+    (module print-err-path
+        (subi x2 x2 16)
+        (sd x2 x1)
+        (jal x1 format-err-path)
+        (sd (+ x2 8) x5)
         (jal x1 print-err)
         (ld x10 (+ x2 8))
         (jal x1 free)
-        (ld x10 (+ x2 40))
-        (jal x1 free)
         (ld x1 x2)
-        (addi x2 x2 72)
+        (addi x2 x2 16)
         (jalr x0 x1)
     )
 
