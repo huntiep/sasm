@@ -1894,6 +1894,16 @@ start
         (sd (+ x20 module) x10)
         (addi x5 x5 16)
         (sd (+ x20 modules) x5)
+
+        (ld x5 (+ x20 import_files))
+        (ld x6 (+ x21 (Tokenizer filename)))
+        (ld x7 (+ x21 (Tokenizer filename.len)))
+        (sd x5 x6)
+        (sd (+ x5 8) x7)
+        (sd (+ x5 16) x10)
+        (addi x5 x5 24)
+        (sd (+ x20 import_files) x5)
+
         (ld x5 (+ x10 (Module parent)))
         (add x13 x0 x10)
         (addi x10 x5 (Module children))
@@ -2987,9 +2997,12 @@ start
             (addi x2 x2 64)
             (jal x0 (^ loop))
         import-dir-add
-            (sd x2 x10)
-            (ld x5 (+ x2 24))
-            (ld x6 (+ x2 32))
+            (ld x5 (+ x20 (Asm module)))
+            (addi x2 x2 24)
+            (beq x5 x10 self-err)
+            (sd (+ x2 16) x10)
+            (ld x5 x2)
+            (ld x6 (+ x2 8))
             (bne x5 x6 import-dir-cont)
             (add x13 x0 x10)
             (ld x10 (+ x20 (Asm module)))
@@ -2999,23 +3012,23 @@ start
             (ori x12 x12 (Unit import))
             (jal x1 (symbol-map24 insert))
             ;; free path
-            (ld x10 (+ x2 48))
+            (ld x10 (+ x2 24))
             (jal x1 free)
-            (addi x2 x2 64)
+            (addi x2 x2 40)
             (jal x0 (^ loop))
         import-dir-cont
-            (ld x7 x2)
-            (addi x2 x2 48)
+            (ld x7 (+ x2 16))
+            (addi x2 x2 24)
             (jal x0 loop)
 
         imm
             (andi x9 x10 (Unit import))
             (bne x9 x0 import-import)
-        imm-continue
             (bne x5 x6 imm-partial)
             (subi x2 x2 16)
             (sd x2 x10)
             (sd (+ x2 8) x11)
+        imm-continue
             (ld x10 (- x5 8))
             (jal x1 in-scope?)
             (ld x12 x2)
@@ -3113,6 +3126,7 @@ start
         eof-closer
             (la x5 eof-msg)
             (addi x6 x0 (len eof-msg))
+            (add x7 x0 x0)
             (jal x1 print-err)
             (jal x0 closer-after)
         empty-path
@@ -3134,7 +3148,7 @@ start
             (addi x6 x0 (len empty-msg))
             (jal x0 print)
         string
-            (defcon string-msg "Import path should consist of identifiers, not strings")
+            (defcon string-msg "Import path should consist of identifiers, not strings,")
             (la x5 string-msg)
             (addi x6 x0 (len string-msg))
         print-skip
@@ -3149,18 +3163,27 @@ start
             (jal x0 print-skip)
         import-import
             (defcon import-import-msg "Cannot import an import from import statement")
+            (subi x2 x2 16)
+            (sd x2 x10)
+            (sd (+ x2 8) x11)
             (la x5 import-import-msg)
             (addi x6 x0 (len import-import-msg))
             (add x7 x0 x0)
             (jal x1 print-err)
-            (jal x0 imm-continue)
+            (ld x10 x2)
+            (ld x11 (+ x2 8))
+            (ld x5 (+ x2 16))
+            (ld x6 (+ x2 24))
+            (beq x5 x6 imm-continue)
+            (addi x2 x2 16)
+            (jal x0 imm-partial)
         self-err
             (defcon self-msg "Cannot import self")
             (la x5 self-msg)
             (addi x6 x0 (len self-msg))
             (addi x2 x2 24)
-            (jal x0 print-free)
         print-free
+            (add x7 x0 x0)
             (jal x1 print-err)
             ;; free path
             (ld x10 x2)
@@ -3174,6 +3197,7 @@ start
             (addi x6 x0 (len root-msg))
             (la x7 root-msg2)
             (addi x8 x0 (len root-msg2))
+            (add x12 x0 x0)
             (jal x0 root-cont)
         ^-err
             (defcon ^-err-msg "Invalid path `")
@@ -3205,12 +3229,13 @@ start
             (defcon scope-msg "` is already defined in this scope from import statement")
             (la x5 scope-msg)
             (addi x6 x0 1)
-            (la x7 scope-msg)
+            (add x7 x0 x5)
             (addi x8 x0 (len scope-msg))
             (ld x10 x2)
             (ld x10 (- x10 8))
             (add x11 x0 x0)
             (jal x1 print-err-symbol)
+            (addi x2 x2 24)
             (jal x0 free-path)
         imm-partial
             (defcon imm-partial-msg "` resolved to variable/global partway in import statement")
@@ -3218,6 +3243,7 @@ start
             (addi x6 x0 (len root-msg))
             (la x7 imm-partial-msg)
             (addi x8 x0 (len imm-partial-msg))
+            (add x12 x0 x0)
             (addi x2 x2 24)
             (jal x0 root-cont)
     )
