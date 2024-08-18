@@ -145,6 +145,7 @@ fn assemble(tokenizer: Box<Tokenizer>) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usiz
         rodata: Vec::new(),
         import_files: HashMap::new(),
     };
+    asm.import_files.insert(asm.tokenizer.filename.clone().into(), 1);
     asm.add_label(name);
     loop {
         asm.assemble();
@@ -447,7 +448,7 @@ impl Asm {
                     if i == path.len() {
                         if self.in_scope(p) {
                             self.print_err(&format!("`{}` is already defined in this scope from import statement", get_value(p)), "");
-                        } else {
+                        } else if !importp {
                             self.get_mod().children.insert(p, (true, v));
                         }
                     } else {
@@ -503,6 +504,10 @@ impl Asm {
                     } else {
                         if let Some(m_id) = self.import_file(p, file_path, ptr) {
                             if i == path.len() {
+                                if m_id == self.get_mod().id {
+                                    self.print_err("Cannot import self", "");
+                                    return;
+                                }
                                 self.get_mod().children.insert(p, (true, Unit::Module(m_id)));
                             }
                             m = &self.modules[m_id];
