@@ -69,7 +69,7 @@ fn main() {
     let input = match read_file(&input_file) {
         Ok(i) => i,
         Err(e) => {
-            eprintln!("Error: {}", e);
+            eprintln!("Error: {}.", e);
             exit(1);
         }
     };
