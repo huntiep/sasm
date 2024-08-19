@@ -408,7 +408,7 @@
         (addi x10 x10 1)
         (addi x12 x12 1)
         (bne x10 x11 loop)
-    (addi x10 x10 1)
+    (addi x10 x0 1)
     (jalr x0 x1)
 
     false
