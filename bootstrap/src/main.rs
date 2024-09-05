@@ -1,6 +1,8 @@
 mod elf;
 mod symbols;
 mod tokenizer;
+mod value;
+mod vm;
 
 use tokenizer::{get_symbol, get_value, Token, Tokenizer};
 
