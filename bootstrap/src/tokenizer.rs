@@ -31,6 +31,9 @@ pub enum Token {
     LParen,
     RParen,
     Pound,
+    Quote,
+    Quasiquote,
+    Unquote,
     Symbol(usize),
     Integer(i64),
     Char(u8),
@@ -129,6 +132,18 @@ impl Tokenizer {
                 }
                 b'"' => self.parse_string(),
                 b'#' => self.parse_literal(),
+                b'\'' => {
+                    self.token_info.push(TokenInfo { start: self.position-1, end: self.position, line: self.lines.len() });
+                    Some(Token::Quote)
+                }
+                b'`' => {
+                    self.token_info.push(TokenInfo { start: self.position-1, end: self.position, line: self.lines.len() });
+                    Some(Token::Quasiquote)
+                }
+                b',' => {
+                    self.token_info.push(TokenInfo { start: self.position-1, end: self.position, line: self.lines.len() });
+                    Some(Token::Unquote)
+                }
                 b'0' ..= b'9' | b'a' ..= b'f' | b'A' ..= b'F' | b'x' | b'o' | b'_' | b'+' | b'-' => self.parse_ambiguous(),
                 _ => self.parse_identifier(self.position - 1, self.lines.len()),
             }
@@ -307,7 +322,7 @@ impl Tokenizer {
     fn parse_identifier(&mut self, start: usize, line: usize) -> Option<Token> {
         while let Some(c) = self._peek() {
             match c {
-                b' ' | b'\t' | b'\r' | b'\n' | b'(' | b')' | b'#' | b';' | b'"' => break,
+                b' ' | b'\t' | b'\r' | b'\n' | b'(' | b')' | b'#' | b';' | b'"' | b'\'' | b'`' | b',' => break,
                 _ => self.position += 1,
             }
         }
@@ -324,7 +339,7 @@ impl Tokenizer {
             match c {
                 // still ambiguous
                 b'0' ..= b'9' | b'a' ..= b'f' | b'A' ..= b'F' | b'x' | b'o' | b'_' | b'+' | b'-' => (),
-                b'(' | b')' | b'#' | b';' | b'"' | b' ' | b'\t' | b'\r' | b'\n' => break,
+                b'(' | b')' | b'#' | b';' | b'"' | b'\'' | b'`' | b',' | b' ' | b'\t' | b'\r' | b'\n' => break,
                 _ => return self.parse_identifier(start, line),
             }
             self.position += 1;

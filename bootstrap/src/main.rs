@@ -1,8 +1,12 @@
 mod elf;
+mod scm;
 mod symbols;
 mod tokenizer;
+mod value;
 
 use tokenizer::{get_symbol, get_value, Token, Tokenizer};
+use value::Value;
+use value::heap_repr::LambdaE;
 
 use std::{env, mem};
 use std::collections::HashMap;
@@ -62,6 +66,26 @@ fn main() {
     }
 
     symbols::init();
+    /*
+    {
+    let symbols = tokenizer::INTERNER.lock().unwrap();
+    let mut total_symbols = 0;
+    let mut small8 = 0;
+    let mut small16 = 0;
+    let mut size = 0;
+    for (k, _) in symbols.iter() {
+        total_symbols += 1;
+        if k.len() <= 8 {
+            small8 += 1;
+            size += 16;
+        } else if k.len() <= 11 {
+            small16 += 1;
+            size += 24;
+        }
+    }
+    println!("{} total\n{} small8\n{} small16\n {} bytes saved", total_symbols, small8, small16, size);
+    }
+    */
     if (std::path::Path::new(&input_file)).is_dir() {
             eprintln!("Error: Expected file, got directory `{}`.", input_file);
             exit(1);
@@ -106,6 +130,24 @@ fn main() {
         }
         exit(1);
     }
+    /*
+    let symbols = tokenizer::INTERNER.lock().unwrap();
+    let mut total_symbols = 0;
+    let mut small8 = 0;
+    let mut small16 = 0;
+    let mut size = 0;
+    for (k, _) in symbols.iter() {
+        total_symbols += 1;
+        if k.len() <= 8 {
+            small8 += 1;
+            size += 16;
+        } else if k.len() <= 11 {
+            small16 += 1;
+            size += 24;
+        }
+    }
+    println!("{} total\n{} small8\n{} small16\n {} bytes saved", total_symbols, small8, small16, size);
+    */
 }
 
 fn read_file<P: AsRef<std::path::Path>>(path: P) -> Result<Vec<u8>, String> {
@@ -135,7 +177,31 @@ fn assemble(tokenizer: Box<Tokenizer>) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usiz
     let name = get_symbol(path.file_stem().unwrap().as_encoded_bytes().to_vec());
     path.pop();
     root.path = path;
+    // TODO: check for conflicts
     root.children.insert(name, (false, Unit::Module(1)));
+
+    // Define registers
+    for i in 1..=32 {
+        root.children.insert(i, (false, Unit::Value(Value::Symbol(i))));
+    }
+
+    root.children.insert(get_symbol(b"read-file".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::read_file))));
+    root.children.insert(get_symbol(b"<".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::lt))));
+    root.children.insert(get_symbol(b"+".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::add))));
+    root.children.insert(get_symbol(b"cons".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::cons))));
+    root.children.insert(get_symbol(b"car".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::car))));
+    root.children.insert(get_symbol(b"cdr".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::cdr))));
+    root.children.insert(get_symbol(b"list".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::list))));
+    root.children.insert(get_symbol(b"make-vec".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::makevec))));
+    root.children.insert(get_symbol(b"vec-len".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::veclen))));
+    root.children.insert(get_symbol(b"vec-ref".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::vecref))));
+    root.children.insert(get_symbol(b"vec-push".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::vecpush))));
+    root.children.insert(get_symbol(b"string->symbol".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::string_to_symbol))));
+    root.children.insert(get_symbol(b"symbol->string".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::symbol_to_string))));
+    root.children.insert(get_symbol(b"string-append".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::string_append))));
+    root.children.insert(get_symbol(b"eq?".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::eqp))));
+    root.children.insert(get_symbol(b"itoa".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::itoa))));
+    root.children.insert(get_symbol(b"len".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::veclen))));
 
     let mut asm = Asm {
         tokenizer: tokenizer,
@@ -145,6 +211,7 @@ fn assemble(tokenizer: Box<Tokenizer>) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usiz
         rodata: Vec::new(),
         import_files: HashMap::new(),
     };
+
     asm.import_files.insert(asm.tokenizer.filename.clone().into(), 1);
     asm.add_label(name);
     loop {
@@ -252,10 +319,72 @@ enum JumpType {
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Unit {
-    Constant(i64),
     // position in data, len, constantp
-    Bytes(usize, usize, bool),
+    Bytes(usize, usize, bool, Value),
     Module(usize),
+    Value(Value),
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum Ast {
+    Ident(Symbol),
+    Constant(Value),
+    If {
+        predicate: Box<Ast>,
+        consequent: Box<Ast>,
+        alternative: Box<Ast>,
+    },
+    Application(Box<Ast>, Vec<Ast>),
+    Lambda {
+        variadic: bool,
+        args: Vec<Symbol>,
+        body: Vec<Ast>,
+    },
+    Set {
+        ident: Symbol,
+        expr: Box<Ast>,
+    }
+}
+
+impl Ast {
+    fn to_sexpr(&self) -> Value {
+        match self {
+            Ast::Ident(s) => Value::Symbol(*s),
+            Ast::Constant(v) => *v,
+            Ast::If { predicate, consequent, alternative } => {
+                Value::Pair(Value::Symbol(symbols::IF), Value::Pair(predicate.to_sexpr(), Value::Pair(consequent.to_sexpr(), Value::Pair(alternative.to_sexpr(), Value::Nil))))
+            }
+            Ast::Set { ident, expr } => Value::Pair(Value::Symbol(symbols::SET), Value::Pair(Value::Symbol(*ident), Value::Pair(expr.to_sexpr(), Value::Nil))),
+            Ast::Lambda { variadic, args, body } => {
+                let mut sargs = Value::Nil;
+                if *variadic && args.len() == 1 {
+                    sargs = Value::Symbol(args[0]);
+                } else {
+                    let mut len = args.len();
+                    if *variadic {
+                        sargs = Value::Pair(Value::Symbol(args[len - 2]), Value::Symbol(args[len - 1]));
+                        len -= 2;
+                    }
+                    for i in 0..len {
+                        sargs = Value::Pair(Value::Symbol(args[len - 1 - i]), sargs);
+                    }
+                }
+
+                let mut sbody = Value::Nil;
+                for i in 0..body.len() {
+                    sbody = Value::Pair(body[body.len() - 1 - i].to_sexpr(), sbody);
+                }
+                Value::Pair(Value::Symbol(symbols::LAMBDA), Value::Pair(sargs, Value::Pair(sbody, Value::Nil)))
+            }
+            Ast::Application(f, args) => {
+                let mut sargs = Value::Nil;
+                for i in 0..args.len() {
+                    sargs = Value::Pair(args[args.len() - 1 - i].to_sexpr(), sargs);
+                }
+                Value::Pair(f.to_sexpr(), sargs)
+            }
+        }
+    }
 }
 
 impl Asm {
@@ -264,12 +393,64 @@ impl Asm {
             match token {
                 Token::Symbol(s) => self.add_label(s),
                 Token::LParen => match self.next() {
-                    Some(Token::Symbol(s)) if s == symbols::INCLUDE => self.handle_include(),
-                    Some(Token::Symbol(s)) if s == symbols::DEFINE => self.handle_define(),
+                    Some(Token::Symbol(symbols::INCLUDE)) => self.handle_include(),
+                    //Some(Token::Symbol(symbols::DEFINE)) => self.handle_define(),
+                    Some(Token::Symbol(s)) if s == symbols::DEFINE || s == symbols::DEFMACRO => self.handle_define(s == symbols::DEFMACRO),
                     Some(Token::Symbol(s)) if s == symbols::DEFCON || s == symbols::DEFVAR => self.handle_defcon_var(s == symbols::DEFCON),
-                    Some(Token::Symbol(s)) if s == symbols::MODULE => self.handle_module(),
-                    Some(Token::Symbol(s)) if s == symbols::IMPORT => self.handle_import(),
-                    Some(Token::Symbol(s)) => self.handle_opcode(s),
+                    Some(Token::Symbol(symbols::MODULE)) => self.handle_module(),
+                    Some(Token::Symbol(symbols::IMPORT)) => self.handle_import(),
+                    Some(Token::Symbol(s)) if s < symbols::LAST_INSTRUCTION => self.handle_opcode(s),
+                    Some(Token::Symbol(_)) | Some(Token::LParen) => {
+                        self.backtrack();
+                        self.backtrack();
+                        let a = self.read_expr().unwrap();
+                        let mut v = self.eval(a).unwrap();
+                        if v.pairp() {
+                            if !v.car().pairp() {
+                                v = Value::Pair(v, Value::Nil);
+                            } 
+                            let mut t = Box::new(Tokenizer::new(Vec::new(), "macro".to_string()));
+                            mem::swap(&mut self.tokenizer, &mut t);
+                            while !v.nilp() {
+                                let e = v.car();
+                                v = v.cdr();
+                                if !e.pairp() {
+                                    // TODO: err
+                                    continue;
+                                }
+                                self.tokenizer.tokens.clear();
+                                e.to_tokens(&mut self.tokenizer.tokens);
+                                self.tokenizer.token_position = 0;
+                                self.assemble();
+                            }
+                            mem::swap(&mut self.tokenizer, &mut t);
+                            // TODO: create tokenstream?
+                        } else if v.vecp() {
+                            let token_vec = v.to_vec();
+                            let mut t = Box::new(Tokenizer::new(Vec::new(), "macro".to_string()));
+                            mem::swap(&mut self.tokenizer, &mut t);
+
+                            for expr in &token_vec.vec {
+                                if expr.symbolp() {
+                                    self.add_label(expr.to_symbol());
+                                    continue;
+                                }
+                                if !expr.pairp() {
+                                    // TODO: err
+                                    continue;
+                                }
+                                self.tokenizer.tokens.clear();
+                                expr.to_tokens(&mut self.tokenizer.tokens);
+                                self.tokenizer.token_position = 0;
+                                //println!("{:?}", self.tokenizer.tokens);
+                                self.assemble();
+                            }
+                            let _ = Box::into_raw(token_vec);
+                            mem::swap(&mut self.tokenizer, &mut t);
+                        } else if !v.nilp() {
+                            // TODO: err?
+                        }
+                    },
                     Some(Token::RParen) => self.print_err("Empty expression ending", ""),
                     Some(_) => {
                         self.print_err("Unexpected value in expression", "");
@@ -440,7 +621,7 @@ impl Asm {
             }
 
             match m.children.get(&p).copied() {
-                v @ Some((_, Unit::Bytes(_, _, _))) | v @ Some((_, Unit::Constant(_))) => {
+                v @ Some((_, Unit::Bytes(_, _, _, _))) | v @ Some((_, Unit::Value(_))) => {
                     let (importp, v) = v.unwrap();
                     if importp {
                         self.print_err("Cannot import an import from import statement", "");
@@ -717,13 +898,35 @@ impl Asm {
         mem::swap(&mut self.tokenizer, &mut t);
     }
 
-    fn handle_define(&mut self) {
+    fn handle_define(&mut self, macrop: bool) {
         let ident = if let Some(i) = self.unwrap_ident() {
             i
         } else {
             return;
         };
 
+        // TODO: error
+        let v = self.read_expr().unwrap();
+        let v = self.eval(v).unwrap();
+        if macrop {
+            if !v.lambdap() {
+                todo!();
+            }
+            let mut l = v.to_lambda();
+            if let LambdaE::Ast { ref mut macrop, .. } = l.f {
+                *macrop = true;
+            }
+            let _ = Box::into_raw(l);
+
+        }
+
+        if self.in_scope(ident) {
+            self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
+        } else {
+            self.get_mod().children.insert(ident, (false, Unit::Value(v)));
+        }
+
+        /*
         match self.next() {
             Some(Token::Integer(i)) => if self.in_scope(ident) {
                 self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
@@ -743,6 +946,7 @@ impl Asm {
             Some(_) => self.print_err(&format!("Definition `{}` must be a constant", get_value(ident)), ""),
             None => return self.print_err(&format!("Unexpected EOF in definition `{}` at end of file", get_value(ident)), ""),
         }
+        */
 
         match self.next() {
             Some(Token::RParen) => (),
@@ -784,7 +988,7 @@ impl Asm {
                 }
                 let start = d.len();
                 d.extend_from_slice(&i.to_le_bytes());
-                self.get_mod().children.insert(ident, (false, Unit::Bytes(start, 8, constant)));
+                self.get_mod().children.insert(ident, (false, Unit::Bytes(start, 8, constant, Value::Int(i))));
             },
             Some(Token::Char(c)) => if self.in_scope(ident) {
                 self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
@@ -799,7 +1003,7 @@ impl Asm {
                 }
                 let start = d.len();
                 d.push(c);
-                self.get_mod().children.insert(ident, (false, Unit::Bytes(start, 1, constant)));
+                self.get_mod().children.insert(ident, (false, Unit::Bytes(start, 1, constant, Value::Int(c as i64))));
             },
             Some(Token::Pound) => {
                 let mut v = if let Some(v) = self.unwrap_array() {
@@ -820,12 +1024,13 @@ impl Asm {
                 while d.len() % 8 != 0 {
                     d.push(0);
                 }
+                let value = Value::bvec_from_vec(v.clone());
                 let start = d.len();
                 d.append(&mut v);
                 if self.in_scope(ident) {
                     self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
                 } else {
-                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, len, constant)));
+                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, len, constant, value)));
                 }
             }
             Some(Token::String(start, end)) => {
@@ -843,12 +1048,13 @@ impl Asm {
                 while d.len() % 8 != 0 {
                     d.push(0);
                 }
+                let value = Value::bvec_from_vec(s.clone());
                 let start = d.len();
                 d.append(&mut s);
                 if self.in_scope(ident) {
                     self.print_err(&format!("Definition `{}` conflicts with existing module/definition in scope", get_value(ident)), "");
                 } else {
-                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, len, constant)));
+                    self.get_mod().children.insert(ident, (false, Unit::Bytes(start, len, constant, value)));
                 }
             }
             Some(Token::RParen) => return self.print_err(&format!("Definition `{}` must have a value", get_value(ident)), ""),
@@ -947,7 +1153,7 @@ impl Asm {
             }
 
             let (p, constant) = match self.follow_path(&path) {
-                Some(Unit::Bytes(p, _, c)) => (p, c),
+                Some(Unit::Bytes(p, _, c, _)) => (p, c),
                 _ => {
                     self.print_err(&format!("Global `{}` not defined/imported at use", self.path_to_string(&path)), "");
                     (0, true)
@@ -1054,7 +1260,350 @@ impl Asm {
         self.print_err("Unclosed expression at end of file", "");
     }
 
+    fn read_expr(&mut self) -> Result<Ast, Option<Token>> {
+        match self.next() {
+            Some(Token::Symbol(s)) => Ok(Ast::Ident(s)),
+            Some(Token::Integer(i)) => Ok(Ast::Constant(Value::Int(i))),
+            Some(Token::Char(c)) => Ok(Ast::Constant(Value::Int(c as i64))),
+            Some(Token::String(pos, len)) => Ok(Ast::Constant(Value::bvec_from_vec(self.get_string(pos, len)))),
+            Some(Token::Quote) => Ok(Ast::Constant(self.read_quote(false)?)),
+            Some(Token::Quasiquote) => Ok(self.read_quasiquote(false)?),
+            Some(Token::LParen) => match self.peek() {
+                Some(Token::Symbol(symbols::QUOTE)) => Ok(Ast::Constant(self.read_quote(true)?)),
+                Some(Token::Symbol(symbols::QUASIQUOTE)) => Ok(self.read_quasiquote(true)?),
+                Some(Token::Symbol(symbols::LAMBDA)) => self.read_lambda(),
+                Some(Token::Symbol(symbols::IF)) => self.read_if(),
+                Some(Token::Symbol(symbols::SET)) => self.read_set(),
+                Some(Token::LParen) | Some(Token::Symbol(_)) => {
+                    let f = match self.read_expr() {
+                        Ok(f) => f,
+                        Err(_) => todo!(),
+                    };
+                    let mut args = Vec::new();
+                    loop {
+                        match self.read_expr() {
+                            Ok(a) => args.push(a),
+                            Err(Some(Token::RParen)) => break,
+                            _ => todo!(),
+                        }
+                    }
+                    Ok(Ast::Application(Box::new(f), args))
+                }
+                t @ _ => todo!("{:?}", t),
+            },
+            Some(Token::RParen) => Err(Some(Token::RParen)),
+            _ => todo!(),
+        }
+    }
+
+    fn read_set(&mut self) -> Result<Ast, Option<Token>> {
+        self.next();
+        let ident = match self.next() {
+            Some(Token::Symbol(s)) => s,
+            _ => todo!(),
+        };
+        let e = self.read_expr().unwrap();
+
+        // TODO: rparen
+        self.next();
+        Ok(Ast::Set {
+            ident: ident,
+            expr: Box::new(e),
+        })
+    }
+
+    fn read_lambda(&mut self) -> Result<Ast, Option<Token>> {
+        self.next();
+
+        let mut args = Vec::new();
+        let mut variadic = false;
+        // TODO: lparen
+        match self.next() {
+            Some(Token::LParen) => {
+                loop {
+                    match self.next() {
+                        Some(Token::RParen) => break,
+                        Some(Token::Symbol(symbols::DOT)) => {
+                            variadic = true;
+                            if let Some(Token::Symbol(s)) = self.next() {
+                                args.push(s);
+                            } else {
+                                todo!();
+                            }
+                            match self.next() {
+                                Some(Token::RParen) => break,
+                                _ => todo!(),
+                            }
+                        },
+                        Some(Token::Symbol(s)) => args.push(s),
+                        _ => todo!(),
+                    }
+                }
+            },
+            Some(Token::Symbol(s)) => {
+                args.push(s);
+                variadic = true;
+            },
+            _ => todo!(),
+        }
+        let mut body = Vec::new();
+        loop {
+            match self.read_expr() {
+                Ok(a) => body.push(a),
+                Err(Some(Token::RParen)) => break,
+                _ => todo!(),
+            }
+        }
+        Ok(Ast::Lambda { variadic, args, body })
+    }
+
+    fn read_if(&mut self) -> Result<Ast, Option<Token>> {
+        self.next();
+        let p = self.read_expr()?;
+        let c = self.read_expr()?;
+        let a = if self.next() == Some(Token::RParen) {
+            Ast::Constant(Value::Void)
+        } else {
+            self.backtrack();
+            let a = self.read_expr()?;
+            // TODO: read closing paren
+            self.next();
+            a
+        };
+        Ok(Ast::If {
+            predicate: Box::new(p),
+            consequent: Box::new(c),
+            alternative: Box::new(a),
+        })
+    }
+
+    fn read_quasiquote(&mut self, listp: bool) -> Result<Ast, Option<Token>> {
+        if listp {
+            self.next();
+            let expr = match self.read_quasiquote(false) {
+                Ok(v) => v,
+                _ => todo!(),
+            };
+            if Some(Token::RParen) != self.next() {
+                todo!();
+            }
+            return Ok(expr);
+        }
+
+        // TODO
+        let mut dotted = false;
+        match self.next() {
+            Some(Token::Unquote) => {
+                self.read_expr()
+            }
+            Some(Token::Symbol(s)) => Ok(Ast::Constant(Value::Symbol(s))),
+            Some(Token::Integer(i)) => Ok(Ast::Constant(Value::Int(i))),
+            Some(Token::Char(c)) => Ok(Ast::Constant(Value::Int(c as i64))),
+            Some(Token::String(start, len)) => Ok(Ast::Constant(Value::bvec_from_vec(self.get_string(start, len)))),
+            Some(Token::RParen) => Err(Some(Token::RParen)),
+            Some(Token::LParen) => {
+                let mut args = Vec::new();
+                let mut start = true;
+                loop {
+                    match self.read_quasiquote(false) {
+                        Ok(Ast::Constant(v)) if start && v.symbolp() && v.to_symbol() == symbols::UNQUOTE => {
+                            let expr = self.read_expr();
+                            // TODO: closer
+                            self.next();
+                            return expr;
+                        }
+                        Ok(v) => args.push(v),
+                        Err(Some(Token::RParen)) => break,
+                        _ => todo!(),
+                    }
+                    start = false;
+                }
+                Ok(Ast::Application(Box::new(Ast::Ident(symbols::LIST)), args))
+            }
+            _ => todo!(),
+        }
+    }
+
+    fn read_quote(&mut self, listp: bool) -> Result<Value, Option<Token>> {
+        if listp {
+            self.next();
+            let v = match self.read_quote(false) {
+                Ok(v) => v,
+                _ => todo!(),
+            };
+            if Some(Token::RParen) != self.next() {
+                todo!();
+            }
+            return Ok(v)
+        }
+
+        let mut dotted = false;
+        match self.next() {
+            Some(Token::Symbol(s)) => Ok(Value::Symbol(s)),
+            Some(Token::Integer(i)) => Ok(Value::Int(i)),
+            // TODO
+            Some(Token::Char(c)) => Ok(Value::Int(c as i64)),
+            Some(Token::String(start, len)) => Ok(Value::bvec_from_vec(self.get_string(start, len))),
+            Some(Token::RParen) => Err(Some(Token::RParen)),
+            Some(Token::LParen) => {
+                let mut args = Vec::new();
+                loop {
+                    match self.read_quote(false) {
+                        Ok(v) if v.symbolp() && v.to_symbol() == symbols::DOT => {
+                            if let Ok(v) = self.read_quote(false) {
+                                dotted = true;
+                                args.push(v);
+                            } else {
+                                todo!();
+                            }
+                            if let Err(Some(Token::RParen)) = self.read_quote(false) {
+                                break;
+                            } else {
+                                todo!();
+                            }
+                        },
+                        Ok(v) => args.push(v),
+                        Err(Some(Token::RParen)) => break,
+                        _ => todo!(),
+                    }
+                }
+                let mut list = Value::Nil;
+                if dotted {
+                    list = args.pop().unwrap();
+                }
+                while args.len() != 0 {
+                    list = Value::Pair(args.pop().unwrap(), list);
+                }
+                Ok(list)
+            }
+            _ => todo!(),
+        }
+    }
+
+    fn eval(&mut self, a: Ast) -> Result<Value, ()> {
+        match a {
+            Ast::Constant(v) => Ok(v),
+            Ast::Ident(s) => self.lookup(s),
+            Ast::Application(f, a) => self.apply(*f, a),
+            Ast::If { predicate, consequent, alternative } => {
+                let p = self.eval(*predicate)?;
+                if p.truthy() {
+                    self.eval(*consequent)
+                } else {
+                    self.eval(*alternative)
+                }
+            },
+            Ast::Set { ident, expr } => {
+                let v = self.eval(*expr).unwrap();
+                self.set_path(&[ident], v).unwrap();
+                Ok(Value::Void)
+            }
+            l @ Ast::Lambda { .. } => Ok(Value::Lambda(l)),
+        }
+    }
+
+    fn lookup(&mut self, s: Symbol) -> Result<Value, ()> {
+        let st = get_value(s);
+        //println!("{}", st);
+        match self.follow_path(&[s]) {
+            Some(Unit::Value(v)) => Ok(v),
+            Some(Unit::Bytes(_, _, _, v)) => Ok(v),
+            _ => {
+                println!("{}", st);
+                todo!();
+            }
+        }
+    }
+
+    fn apply(&mut self, f: Ast, args_raw: Vec<Ast>) -> Result<Value, ()> {
+        if let Ast::Ident(s) = f {
+            if let Some(Unit::Module(_)) = self.follow_path(&[s]) {
+                let mut path = vec![s];
+                for a in args_raw {
+                    if let Ast::Ident(s) = a {
+                        path.push(s);
+                    } else {
+                        todo!();
+                    }
+                }
+                match self.follow_path(&path) {
+                    Some(Unit::Value(v)) => return Ok(v),
+                    _ => todo!(),
+                }
+            }
+        }
+        let f = self.eval(f)?;
+        if !f.lambdap() {
+            todo!();
+        }
+        let f = f.to_lambda();
+
+        let mut v = Value::Void;
+        if let LambdaE::Ast { macrop, variadicp, args: ref fargs, ref body } = f.f {
+            let mut args = Vec::new();
+            if macrop {
+                for a in args_raw {
+                    args.push(a.to_sexpr());
+                }
+            } else {
+                for a in args_raw {
+                    args.push(self.eval(a)?);
+                }
+            }
+
+            if args.len() < fargs.len() {
+                todo!("not enough args");
+            } else if args.len() > fargs.len() && !variadicp {
+                todo!("not enough args");
+            }
+            let m_id = self.modules.len();
+            let mut module = Module::new(m_id, Some(self.module), false);
+            for (i, a) in fargs.iter().enumerate() {
+                module.children.insert(*a, (false, Unit::Value(args[i])));
+            }
+            self.module = m_id;
+            self.modules.push(module);
+
+            for e in body {
+                v = self.eval(e.clone()).unwrap();
+            }
+
+            self.module = self.get_mod().parent.unwrap();
+            // TODO
+            self.modules.pop();
+            if macrop && !v.voidp() && !v.nilp() {
+                let x = v.to_ast();
+                v = self.eval(x).unwrap();
+                //v = self.eval(v.to_ast()).unwrap();
+            }
+        } else if let LambdaE::Native(f) = f.f {
+            let mut args = Vec::new();
+            for a in args_raw {
+                args.push(self.eval(a)?);
+            }
+            v = f(args);
+        }
+        // TODO: mem::forget?
+        let _ = Box::into_raw(f);
+        Ok(v)
+    }
+
     fn unwrap_register(&mut self) -> u32 {
+        // TODO: err
+        let e = self.read_expr().unwrap();
+        let v = self.eval(e).unwrap();
+        let s = v.to_symbol();
+        if v.symbolp() && s <= symbols::X31 {
+            s as u32 - 1
+        } else if v.symbolp() {
+            self.print_err(&format!("Expected register in instruction, got identifier `{}`", get_value(s)), "");
+            0
+        } else {
+            self.print_err("Expected register in instruction", "");
+            0
+        }
+
+        /*
         match self.next() {
             Some(Token::Symbol(s)) => if s <= symbols::X31 {
                 s as u32 - 1
@@ -1076,9 +1625,21 @@ impl Asm {
                 0
             }
         }
+        */
     }
 
     fn unwrap_imm(&mut self) -> i64 {
+        let e = self.read_expr().unwrap();
+        let v = self.eval(e).unwrap();
+        if v.intp() {
+            v.to_integer() as i64
+        } else if v.bigintp() {
+            todo!();
+        } else {
+            todo!();
+        }
+
+        /*
         match self.next() {
             Some(Token::LParen) => {
                 match self.next() {
@@ -1098,7 +1659,14 @@ impl Asm {
                             return 0;
                         }
                         return match self.follow_path(&path) {
-                            Some(Unit::Constant(i)) => i,
+                            // TODO
+                            Some(Unit::Value(v)) => if v.intp() {
+                                v.to_integer() as i64
+                            } else if v.bigintp() {
+                                todo!();
+                            } else {
+                                todo!();
+                            },
                             Some(_) => {
                                 self.print_err(&format!("Variable `{}` must be a constant", self.path_to_string(&path)), "");
                                 0
@@ -1160,7 +1728,14 @@ impl Asm {
             }
             Some(Token::Symbol(s)) => {
                 match self.follow_path(&[s]) {
-                    Some(Unit::Constant(i)) => i,
+                    // TODO
+                    Some(Unit::Value(v)) => if v.intp() {
+                        v.to_integer() as i64
+                    } else if v.bigintp() {
+                        todo!();
+                    } else {
+                        todo!();
+                    },
                     Some(_) => {
                         self.print_err(&format!("Variable `{}` must be a constant in expression", get_value(s)), "");
                         0
@@ -1187,6 +1762,7 @@ impl Asm {
                 0
             }
         }
+        */
     }
 
     fn unwrap_offset(&mut self) -> (u32, i64) {
@@ -1431,12 +2007,13 @@ impl Asm {
                 self.print_err("Bad path, can only move up (`^`) at beginning of path in expression", "");
                 return None;
             } else if p == symbols::STAR {
+                // TODO
                 self.print_err("Bad path, only import statements can use `*` in expression", "");
                 return None;
             }
 
             match m.children.get(&p) {
-                v @ Some((_, Unit::Bytes(_, _, _))) | v @ Some((_, Unit::Constant(_))) => {
+                v @ Some((_, Unit::Bytes(_, _, _, _))) | v @ Some((_, Unit::Value(_))) => {
                     if i == path.len() {
                         return Some(v.unwrap().1);
                     } else {
@@ -1446,6 +2023,12 @@ impl Asm {
                 Some((_, Unit::Module(id))) => m = &self.modules[*id],
                 None => {
                     if m.filep {
+                        if i == path.len() {
+                            match self.modules[0].children.get(&path[i - 1]) {
+                                v @ Some((_, Unit::Bytes(_, _, _, _))) | v @ Some((_, Unit::Value(_))) => return Some(v.unwrap().1),
+                                _ => (),
+                            }
+                        }
                         self.tokenizer.err = true;
                         return None;
                     } else {
@@ -1459,13 +2042,84 @@ impl Asm {
         Some(Unit::Module(m.id))
     }
 
+    fn set_path(&mut self, path: &[Symbol], value: Value) -> Result<(), ()> {
+        if path.len() == 1 && (path[0] == symbols::CARAT || path[0] == symbols::STAR) {
+            self.print_err("Path cannot consist of just `^`/`*`", "");
+            todo!();
+        }
+        let mut id = self.module;
+        let mut i = 0;
+        while i < path.len() {
+            let p = path[i];
+            if p == symbols::CARAT {
+                i += 1;
+                if let Some(p) = self.modules[id].parent {
+                    id = p;
+                } else {
+                    self.print_err("Path jumped past root in expression", "");
+                    todo!();
+                };
+            } else {
+                break;
+            }
+        }
+
+        while i < path.len() {
+            let p = path[i];
+            i += 1;
+            if p == symbols::CARAT {
+                self.print_err("Bad path, can only move up (`^`) at beginning of path in expression", "");
+                todo!();
+            } else if p == symbols::STAR {
+                // TODO
+                self.print_err("Bad path, only import statements can use `*` in expression", "");
+                todo!();
+            }
+
+            match self.modules[id].children.get(&p) {
+                Some((_, Unit::Bytes(_, _, _, _))) => if i == path.len() {
+                    return Err(());
+                } else {
+                    todo!();
+                },
+                Some((_, Unit::Value(_))) => if i == path.len() {
+                    self.modules[id].children.insert(p, (false, Unit::Value(value)));
+                    return Ok(());
+                } else {
+                    todo!();
+                }
+                Some((_, Unit::Module(mid))) => id = *mid,
+                None => {
+                    if self.modules[id].filep {
+                        if i == path.len() {
+                            match self.modules[0].children.get(&path[i - 1]) {
+                                Some((_, Unit::Bytes(_, _, _, _))) => return Err(()),
+                                Some((_, Unit::Value(_))) => {
+                                    self.modules[0].children.insert(p, (false, Unit::Value(value)));
+                                    return Ok(());
+                                }
+                                _ => (),
+                            }
+                        }
+                        self.tokenizer.err = true;
+                        todo!();
+                    } else {
+                        id = self.modules[id].parent.unwrap();
+                        i -= 1;
+                    }
+                }
+            }
+        }
+        todo!()
+    }
+
     fn in_scope(&self, ident: Symbol) -> bool {
         let mut m = &self.modules[self.module];
         loop {
             if m.children.get(&ident).is_some() {
                 return true;
             } else if m.filep {
-                return false;
+                return self.modules[0].children.get(&ident).is_some();
             } else {
                 // shitty bc
                 let p = m.parent.unwrap();

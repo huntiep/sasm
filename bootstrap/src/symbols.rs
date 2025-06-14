@@ -27,6 +27,8 @@ pub const ECALL: usize = 77;
 pub const EBREAK: usize = 78;
 pub const LA: usize = 79;
 
+pub const LAST_INSTRUCTION: usize = 80;
+
 pub const LEN: usize = 80;
 pub const PLUS: usize = 81;
 pub const NEG: usize = 82;
@@ -38,6 +40,15 @@ pub const INCLUDE: usize = 87;
 pub const DEFINE: usize = 88;
 pub const DEFVAR: usize = 89;
 pub const DEFCON: usize = 90;
+pub const LAMBDA: usize = 91;
+pub const IF: usize = 92;
+pub const SET: usize = 93;
+pub const DEFMACRO: usize = 94;
+pub const QUOTE: usize = 95;
+pub const QUASIQUOTE: usize = 96;
+pub const UNQUOTE: usize = 97;
+pub const LIST: usize = 98;
+pub const DOT: usize = 99;
 
 pub fn init() {
     assert_eq!(get_symbol(b"x0".to_vec()), 1);
@@ -137,5 +148,13 @@ pub fn init() {
     get_symbol(b"define".to_vec());
     get_symbol(b"defvar".to_vec());
     get_symbol(b"defcon".to_vec());
-
+    get_symbol(b"lambda".to_vec());
+    get_symbol(b"if".to_vec());
+    get_symbol(b"set!".to_vec());
+    get_symbol(b"defmacro".to_vec());
+    get_symbol(b"quote".to_vec());
+    get_symbol(b"quasiquote".to_vec());
+    get_symbol(b"unquote".to_vec());
+    get_symbol(b"list".to_vec());
+    get_symbol(b".".to_vec());
 }
