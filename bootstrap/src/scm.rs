@@ -19,6 +19,31 @@ pub fn add(args: Vec<Value>) -> Value {
     Value::Int(v)
 }
 
+pub fn sub(args: Vec<Value>) -> Value {
+    if args.len() == 0 {
+        todo!();
+    } else if !args[0].intp() {
+        todo!();
+    }
+    if args.len() == 1 {
+        return Value::Int(-(args[0].to_integer() as i64));
+    }
+    let mut v = args[0].to_integer() as i64;
+    for a in &args[1..] {
+        if a.intp() {
+            v -= a.to_integer() as i64;
+        } else if a.bigintp() {
+            let b = a.to_bigint();
+            v -= b.int;
+            let _ = Box::into_raw(b);
+        } else {
+            todo!();
+        }
+    }
+    Value::Int(v)
+}
+
+
 pub fn lt(args: Vec<Value>) -> Value {
     if args.len() != 2 || !args[0].intp() || !args[1].intp() {
         todo!()

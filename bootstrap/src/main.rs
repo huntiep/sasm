@@ -3,6 +3,7 @@ mod scm;
 mod symbols;
 mod tokenizer;
 mod value;
+mod vm;
 
 use tokenizer::{get_symbol, get_value, Token, Tokenizer};
 use value::Value;
@@ -188,6 +189,7 @@ fn assemble(tokenizer: Box<Tokenizer>) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usiz
     root.children.insert(get_symbol(b"read-file".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::read_file))));
     root.children.insert(get_symbol(b"<".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::lt))));
     root.children.insert(get_symbol(b"+".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::add))));
+    root.children.insert(get_symbol(b"-".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::sub))));
     root.children.insert(get_symbol(b"cons".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::cons))));
     root.children.insert(get_symbol(b"car".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::car))));
     root.children.insert(get_symbol(b"cdr".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::cdr))));
@@ -201,6 +203,7 @@ fn assemble(tokenizer: Box<Tokenizer>) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usiz
     root.children.insert(get_symbol(b"string-append".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::string_append))));
     root.children.insert(get_symbol(b"eq?".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::eqp))));
     root.children.insert(get_symbol(b"itoa".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::itoa))));
+    root.children.insert(get_symbol(b"print".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::print))));
     root.children.insert(get_symbol(b"len".to_vec()), (false, Unit::Value(Value::LambdaNative(scm::veclen))));
 
     let mut asm = Asm {
@@ -343,6 +346,11 @@ enum Ast {
     Set {
         ident: Symbol,
         expr: Box<Ast>,
+    },
+    Define {
+        ident: Symbol,
+        expr: Box<Ast>,
+        macrop: bool,
     }
 }
 
@@ -355,6 +363,8 @@ impl Ast {
                 Value::Pair(Value::Symbol(symbols::IF), Value::Pair(predicate.to_sexpr(), Value::Pair(consequent.to_sexpr(), Value::Pair(alternative.to_sexpr(), Value::Nil))))
             }
             Ast::Set { ident, expr } => Value::Pair(Value::Symbol(symbols::SET), Value::Pair(Value::Symbol(*ident), Value::Pair(expr.to_sexpr(), Value::Nil))),
+            Ast::Define { ident, expr, macrop } if *macrop => Value::Pair(Value::Symbol(symbols::DEFMACRO), Value::Pair(Value::Symbol(*ident), Value::Pair(expr.to_sexpr(), Value::Nil))),
+            Ast::Define { ident, expr, macrop } => Value::Pair(Value::Symbol(symbols::DEFINE), Value::Pair(Value::Symbol(*ident), Value::Pair(expr.to_sexpr(), Value::Nil))),
             Ast::Lambda { variadic, args, body } => {
                 let mut sargs = Value::Nil;
                 if *variadic && args.len() == 1 {
@@ -1274,6 +1284,8 @@ impl Asm {
                 Some(Token::Symbol(symbols::LAMBDA)) => self.read_lambda(),
                 Some(Token::Symbol(symbols::IF)) => self.read_if(),
                 Some(Token::Symbol(symbols::SET)) => self.read_set(),
+                Some(Token::Symbol(symbols::DEFINE)) => self.read_define(false),
+                Some(Token::Symbol(symbols::DEFMACRO)) => self.read_define(true),
                 Some(Token::LParen) | Some(Token::Symbol(_)) => {
                     let f = match self.read_expr() {
                         Ok(f) => f,
@@ -1294,6 +1306,23 @@ impl Asm {
             Some(Token::RParen) => Err(Some(Token::RParen)),
             _ => todo!(),
         }
+    }
+
+    fn read_define(&mut self, macrop: bool) -> Result<Ast, Option<Token>> {
+        self.next();
+        let ident = match self.next() {
+            Some(Token::Symbol(s)) => s,
+            _ => todo!(),
+        };
+        let e = self.read_expr().unwrap();
+
+        // TODO: rparen
+        self.next();
+        Ok(Ast::Define {
+            ident: ident,
+            expr: Box::new(e),
+            macrop: macrop,
+        })
     }
 
     fn read_set(&mut self) -> Result<Ast, Option<Token>> {
@@ -1499,6 +1528,7 @@ impl Asm {
                 Ok(Value::Void)
             }
             l @ Ast::Lambda { .. } => Ok(Value::Lambda(l)),
+            _ => todo!(),
         }
     }
 
