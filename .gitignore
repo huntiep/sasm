@@ -3,5 +3,3 @@ target
 Cargo.lock
 *.o
 *.out
-*.c
-*.asm
