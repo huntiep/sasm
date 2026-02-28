@@ -8,6 +8,7 @@ mod vm;
 use tokenizer::{get_symbol, get_value, Token, Tokenizer};
 use value::Value;
 use value::heap_repr::LambdaE;
+use vm::Opcode;
 
 use std::{env, mem};
 use std::collections::HashMap;
@@ -23,6 +24,32 @@ fn print_usage(prog: &str) {
 }
 
 fn main() {
+    let tokenizer = Box::new(Tokenizer::new(Vec::new(), String::new()));
+    let mut asm = Asm {
+        tokenizer: tokenizer,
+        modules: Vec::new(),
+        module: 1,
+        data: Vec::new(),
+        rodata: Vec::new(),
+        import_files: HashMap::new(),
+        vm: vm::VM::new(),
+    };
+    //let a = Ast::Constant(Value::Int(5));
+    let a = Ast::If {
+        predicate: Box::new(Ast::Constant(Value::False)),
+        consequent: Box::new(Ast::Constant(Value::Int(1))),
+        alternative: Box::new(Ast::Constant(Value::Int(2))),
+    };
+    let a = Ast::Application(Box::new(Ast::Ident(symbols::PLUS)), vec![Ast::Constant(Value::Int(1)), Ast::Constant(Value::Int(2))]);
+    let b = Ast::Application(Box::new(Ast::Ident(symbols::PLUS)), vec![Ast::Constant(Value::Int(1)), a]);
+    let a = Ast::Application(Box::new(Ast::Ident(symbols::CONS)), vec![Ast::Constant(Value::Int(1)), Ast::Constant(Value::Int(2))]);
+    let b = Ast::Application(Box::new(Ast::Ident(symbols::CDR)), vec![a]);
+    let v = asm.compile(b).unwrap();
+    println!("{}", v);
+    return;
+
+
+
     let mut args = env::args();
     let prog = args.next().unwrap();
     let mut input_file = None;
@@ -213,6 +240,7 @@ fn assemble(tokenizer: Box<Tokenizer>) -> (Vec<u32>, Vec<u8>, Vec<u8>, Vec<(usiz
         data: Vec::new(),
         rodata: Vec::new(),
         import_files: HashMap::new(),
+        vm: vm::VM::new(),
     };
 
     asm.import_files.insert(asm.tokenizer.filename.clone().into(), 1);
@@ -240,6 +268,7 @@ struct Asm {
     data: Vec<u8>,
     rodata: Vec<u8>,
     import_files: HashMap<PathBuf, usize>,
+    vm: vm::VM,
 }
 
 type Symbol = usize;
@@ -1507,6 +1536,213 @@ impl Asm {
             }
             _ => todo!(),
         }
+    }
+
+    fn compile(&mut self, a: Ast) -> Result<Value, ()> {
+        match a {
+            Ast::Constant(v) => Ok(v),
+            Ast::Ident(s) => self.lookup(s),
+            _ => {
+                let mut code = Vec::new();
+                self._compile(a, &mut code, 0, 0)?;
+                code.push(Opcode::Ret);
+                self.run(code)
+            },
+        }
+    }
+
+    fn run(&mut self, code: Vec<u8>) -> Result<Value, ()> {
+        self.vm.reset();
+        self.vm.bytecode = code;
+        self.vm.run();
+        Ok(self.vm.registers[0])
+    }
+
+    fn compile_constant(&mut self, v: Value, code: &mut Vec<u8>, target: u8) {
+        code.push(Opcode::Constant);
+        code.push(target);
+        let mut v = v.0;
+        code.push(((v >> 56) & 255) as u8);
+        code.push(((v >> 48) & 255) as u8);
+        code.push(((v >> 40) & 255) as u8);
+        code.push(((v >> 32) & 255) as u8);
+        code.push(((v >> 24) & 255) as u8);
+        code.push(((v >> 16) & 255) as u8);
+        code.push(((v >> 8) & 255) as u8);
+        code.push((v & 255) as u8);
+    }
+
+    fn compile_symbol(&mut self, code: &mut Vec<u8>, opcode: u8, target: u8, s: Symbol) {
+    //fn compile_symbol(&mut self, s: Symbol, code: &mut Vec<u8>, target: u8) {
+        code.push(opcode);
+        code.push(target);
+        code.push(((s >> 24) & 255) as u8);
+        code.push(((s >> 16) & 255) as u8);
+        code.push(((s >> 8) & 255) as u8);
+        code.push((s & 255) as u8);
+    }
+
+    fn get_tmp_reg(&self, used: u32) -> u8 {
+        for i in 0..32 {
+            if used & (1 << (31 - i)) == 0 {
+                return 31 - i
+            }
+        }
+        // TODO
+        unimplemented!();
+    }
+
+    //fn _compile(&mut self, a: Ast, code: &mut Vec<Opcode>, locals: &HashMap<Symbol, usize>) -> Result<(), ()> {
+    fn _compile(&mut self, a: Ast, code: &mut Vec<u8>, target: u8, used: u32) -> Result<(), ()> {
+        match a {
+            Ast::Constant(v) => self.compile_constant(v, code, target),
+            Ast::Ident(s) => self.compile_symbol(code, Opcode::Lookup, target, s),
+            Ast::If{ predicate, consequent, alternative } => {
+                self._compile(*predicate, code, target, used)?;
+                let compare = self.get_tmp_reg();
+                self.compile_constant(Value::False, code, compare);
+                code.push(Opcode::Beq);
+                code.push(target);
+                code.push(compare);
+                let alt_jump = code.len();
+                code.push(0);
+                code.push(0);
+                self._compile(*consequent, code, target, used)?;
+                code.push(Opcode::Jump);
+                let cons_jump = code.len();
+                code.push(0);
+                code.push(0);
+                let jmp = code.len() - alt_jump - 2;
+                code[alt_jump+1] = jmp as u8;
+                code[alt_jump] = (jmp >> 8) as u8;
+                self._compile(*alternative, code, target, used)?;
+                let jmp = code.len() - cons_jump;
+                code[cons_jump+1] = jmp as u8;
+                code[cons_jump] = (jmp >> 8) as u8;
+            }
+            Ast::Application(f, a) => {
+                /*
+                if let Ast::Ident(s) = *f {
+                    let v = self.lookup(s);
+                    if v.is_ok() && v.unwrap().lambdap() {
+                        let f = v.unwrap().to_lambda();
+                        let pred = f.macrop;
+                        Box::into_raw(f);
+                        if pred {
+                            let mut args = Vec::with_capacity(a.len());
+                            for arg in a {
+                                args.push(arg.to_sexpr());
+                            }
+                            // TODO: build application code
+                            //let v = self.run(_).unwrap();
+                            //return self._compile(v.to_ast(), code, target);
+                        }
+                    }
+                }
+                */
+                let arg_count = a.len() + 1;
+                for i in 0..arg_count {
+                    if used & (1 << i) != 0 {
+                        code.push(Opcode::PushStack);
+                        code.push(i as u8);
+                    }
+                }
+                let mut i = 1;
+                let mut arg_used = 0;
+                for arg in a {
+                    self._compile(arg, code, i, arg_used)?;
+                    arg_used = arg_used | (1 << i);
+                    i += 1;
+                }
+                let mut prim = false;
+                if let Ast::Ident(s) = *f {
+                    prim = true;
+                    match s {
+                        // TODO: handle multiple args
+                        symbols::PLUS => {
+                            code.push(Opcode::Add);
+                            code.push(target);
+                            code.push(1);
+                            code.push(2);
+                        },
+                        symbols::CONS => {
+                            code.push(Opcode::Cons);
+                            code.push(target);
+                            code.push(1);
+                            code.push(2);
+                        }
+                        symbols::CAR => {
+                            code.push(Opcode::Car);
+                            code.push(target);
+                            code.push(1);
+                        }
+                        symbols::CDR => {
+                            code.push(Opcode::Cdr);
+                            code.push(target);
+                            code.push(1);
+                        }
+                        _ => {
+                            self.compile_symbol(code, Opcode::Lookup, 0, s);
+                            prim = false;
+                        }
+                    }
+                } else {
+                    self._compile(*f, code, 0, arg_used)?;
+                }
+                if !prim {
+                    code.push(Opcode::Call);
+                    if target != 0 {
+                        code.push(Opcode::Move);
+                        code.push(target);
+                        code.push(0);
+                    }
+                }
+                // Restore registers
+                for i in 0..arg_count {
+                    if used & (1 << i) != 0 {
+                        code.push(Opcode::PopStack);
+                        code.push((arg_count - 1 - i) as u8);
+                    }
+                }
+            },
+            Ast::Set { ident, expr } => {
+                // TODO
+                //code.push(Opcode::Set);
+                //code.push(Opcode::Constant(Value::Void));
+            }
+            Ast::Define { .. } => todo!(),
+            Ast::Lambda { variadic, args, body, } => {
+                // TODO: variadics
+                /*
+                let lambda_locals: HashMap<Symbol, usize> = args.iter().enumerate().collect();
+                let mut lambda_code = Vec::new();
+                for a in body {
+                    self._compile(a, lambda_code, lambda_locals)?;
+                }
+                */
+                //let mut new_locals = locals.clone();
+                let mut i = 1;
+                let mut lambda_arg_used = 0;
+                let mut lambda_code = Vec::new();
+                for a in args {
+                    //locals.insert(a, i);
+                    lambda_arg_used = lambda_arg_used | (1 << i);
+                    self.compile_symbol(lambda_code, Opcode::Define, i, a);
+                    i += 1;
+                }
+                for expr in body {
+                    // TODO: keep args in registers
+                    self._compile(expr, &mut lambda_code, 0, 0);
+                }
+
+                let m_id = self.modules.len();
+                let module = Module::new(m_id, Some(self.module), false);
+                self.modules.push(module);
+                let l = Value::Lambda(false, variadic, lambda_code, module);
+
+            },
+        }
+        Ok(())
     }
 
     fn eval(&mut self, a: Ast) -> Result<Value, ()> {

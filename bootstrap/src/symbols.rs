@@ -49,6 +49,9 @@ pub const QUASIQUOTE: usize = 96;
 pub const UNQUOTE: usize = 97;
 pub const LIST: usize = 98;
 pub const DOT: usize = 99;
+pub const CONS: usize = 100;
+pub const CAR: usize = 101;
+pub const CDR: usize = 102;
 
 pub fn init() {
     assert_eq!(get_symbol(b"x0".to_vec()), 1);
@@ -157,4 +160,7 @@ pub fn init() {
     get_symbol(b"unquote".to_vec());
     get_symbol(b"list".to_vec());
     get_symbol(b".".to_vec());
+    get_symbol(b"cons".to_vec());
+    get_symbol(b"car".to_vec());
+    get_symbol(b"cdr".to_vec());
 }

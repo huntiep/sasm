@@ -2,7 +2,7 @@
 // TODO
 #![allow(unused)]
 
-use {symbols, Ast, Symbol, Token};
+use {symbols, Ast, Module, Symbol, Token};
 use self::heap_repr::*;
 
 use std::fmt;
@@ -280,6 +280,15 @@ impl Value {
         ((n.checked_shl(63 - at).unwrap() as i64) >> 63-at) as u64
     }
 
+    pub fn Lambda(macrop: bool, variadicp: bool, code: Vec<u8>, env: Module) -> Self {
+        let next = get_head();
+        let l = Lambda::new(next, macrop, variadicp, code, env);
+        let lambda = Box::into_raw(Box::new(l));
+        let p = lambda as u64;
+        set_head(p, VType::Lambda);
+        Value(NAN | LAMBDA_TAG | (p & ((1 << 48) - 1)))
+    }
+    /*
     pub fn Lambda(l: Ast) -> Self {
         let next = get_head();
         let l = match l {
@@ -292,6 +301,7 @@ impl Value {
         set_head(p, VType::Lambda);
         Value(NAN | LAMBDA_TAG | (p & ((1 << 48) - 1)))
     }
+    */
     pub fn LambdaNative(f: fn(Vec<Value>) -> Value) -> Self {
         let next = get_head();
         let lambda = Box::into_raw(Box::new(Lambda::new_native(next, f)));
@@ -410,7 +420,7 @@ impl Value {
     }
 }
 pub mod heap_repr {
-    use {Ast, Symbol};
+    use {Ast, Module, Symbol};
     use super::Value;
 
     use std::collections::HashMap;
@@ -490,12 +500,20 @@ pub mod heap_repr {
 
     pub enum LambdaE {
         Native(fn(Vec<Value>) -> Value),
+        Compiled {
+            macrop: bool,
+            variadicp: bool,
+            code: Vec<u8>,
+            env: Module,
+        }
+        /*
         Ast {
             macrop: bool,
             variadicp: bool,
             args: Vec<Symbol>,
             body: Vec<Ast>,
         }
+        */
     }
 
     pub struct Lambda {
@@ -504,6 +522,17 @@ pub mod heap_repr {
     }
 
     impl Lambda {
+        pub fn new(gc: u64, macrop: bool, variadicp: bool, code: Vec<u8>, env: Module) -> Self {
+            Lambda {
+                gc: gc,
+                f: LambdaE::Compiled {
+                    macrop,
+                    variadicp,
+                    code,
+                },
+            }
+        }
+        /*
         pub fn new(gc: u64, macrop: bool, variadicp: bool, args: Vec<Symbol>, body: Vec<Ast>) -> Self {
             Lambda {
                 gc: gc,
@@ -515,6 +544,7 @@ pub mod heap_repr {
                 },
             }
         }
+        */
 
         pub fn new_native(gc: u64, f: fn(Vec<Value>) -> Value) -> Self {
             Lambda {
