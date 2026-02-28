@@ -43,7 +43,7 @@
             (bge x28 x5 set-header)
 
             (add x28 x28 x6)
-            (bge x7 x28 malloc-allocate)
+            (bge x28 x7 malloc-allocate)
             (ld x29 x28)
             (andi x29 x29 1)
             (bne x29 x0 find-fit-set-header)
