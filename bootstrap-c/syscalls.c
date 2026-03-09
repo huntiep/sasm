@@ -59,6 +59,10 @@ u8* mmap(u64 pos, u64 size, u64 prot, u64 flags, u64 fd, u64 tmp) {
     return (u8*)syscall6(SYS_MMAP, pos, size, prot, flags, fd, tmp);
 }
 
+u64 munmap(u8* ptr, u64 size) {
+    return syscall6(SYS_MUNMAP, (u64)ptr, size, 0, 0, 0, 0);
+}
+
 u64 close(u64 fd) {
     return syscall5(SYS_CLOSE, fd, 0, 0, 0, 0);
 }

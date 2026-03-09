@@ -1,7 +1,7 @@
-typedef struct String_struct {
+typedef struct SString_struct {
     u8* data;
     u32 len;
-} String;
+} SymString;
 
 typedef struct SymbolEntry_struct {
     u8* string;
@@ -20,7 +20,7 @@ SymbolTable SYMBOLS = { .data = NULL, .len = 0, .cap = 0 };
 u32 string_to_symbol(u8* str, u32 str_len);
 u32 __string_to_symbol(u8* str, u32 str_len, u32 old_sym);
 
-void SymbolTableInit() {
+void SymbolTableInit(void) {
     SYMBOLS.data = (SymbolEntry*)calloc(256 * sizeof(SymbolEntry));
     SYMBOLS.cap = 256;
 
@@ -179,14 +179,14 @@ lookup_continue:
     }
 }
 
-String symbol_to_string(u32 sym) {
+SymString symbol_to_string(u32 sym) {
     if (sym == 0 || SYMBOLS.len < sym) {
         goto err;
     }
 
     for (u64 i = 0; i < SYMBOLS.cap; i++) {
         if (SYMBOLS.data[i].symbol == sym) {
-            String ret = { .data = SYMBOLS.data[i].string, .len = SYMBOLS.data[i].len };
+            SymString ret = { .data = SYMBOLS.data[i].string, .len = SYMBOLS.data[i].len };
             return ret;
         }
     }

@@ -1,7 +1,7 @@
 u64 HEAP_START = 0;
 u64 HEAP_END = 0;
 
-void alloc_init() {
+void alloc_init(void) {
     u64 tmp = brk(0);
     HEAP_START = tmp;
     HEAP_END = tmp;
