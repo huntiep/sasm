@@ -9,38 +9,23 @@ typedef long i64;
 
 #define NULL 0
 
+
 #include "syscalls.c"
 #include "alloc.c"
 #include "util.c"
 #include "sasm_strings.c"
 #include "symbol_table.c"
+#include "types.c"
 
-typedef struct ArrayBufu32_struct {
-    u32* data;
-    u64 len;
-    u64 cap;
-} ArrayBufu32;
-
-typedef struct ArrayBufu8_struct {
-    u8* data;
-    u64 len;
-    u64 cap;
-} ArrayBufu8;
-
-typedef struct Rewrite_struct {
-    u64 program_pos;
-    // (data_pos << 1) | rodata?
-    u64 data_pos;
-} Rewrite;
-
-typedef struct RewriteArray_struct {
-    Rewrite* data;
-    u64 len;
-    u64 cap;
-} RewriteArray;
-
-u64 read_file(char* filename, u8** input, u8** input_end);
+u64 read_file(char* filename, u8** input, u64* input_len);
 u64 elf(ArrayBufu32 program, ArrayBufu8 data, ArrayBufu8 rodata, RewriteArray rewrites, u64 out);
+
+#include "tokenizer.c"
+#include "assemble.c"
+#ifdef testing
+#include "test.c"
+#endif
+
 
 void print_usage(u8* prog) {
     u8* usage1 = "USAGE: ";
@@ -71,6 +56,10 @@ void args_flag_err(u8* flag) {
 }
 
 u64 main(u64 argc, u8* argv[]) {
+#ifdef testing
+    test();
+    return 0;
+#endif
     alloc_init();
     argc = argc - 1;
     u8* prog = argv[0];
@@ -125,20 +114,41 @@ u64 main(u64 argc, u8* argv[]) {
         write(STDOUT, "\n", 1);
     }
 
-    //symbol_table_init();
+    SymbolTableInit();
     u8* input = NULL;
-    u8* input_end = NULL;
-    u64 err = read_file(input_file, &input, &input_end);
+    u64 input_len = NULL;
+    u64 err = read_file(input_file, &input, &input_len);
     if (err != 0) {
         u8* msg = "Error: ";
         u64 msg_len = sizeof(msg) - 1;
         write(STDERR, msg, msg_len);
-        write(STDERR, input+1, ((u64)input_end) - 1);
+        write(STDERR, input+1, input_len - 1);
         free((u64)input);
         msg = ".\n";
         msg_len = sizeof(msg) - 1;
         write(STDERR, msg, msg_len);
         return 1;
+    }
+
+    u64 filename_len = 0;
+    while (input_file[filename_len] != 0) {
+        filename_len++;
+    }
+    Tokenizer* tokenizer = Tokenizer_new(input, input_len, input_file, filename_len);
+    Asm* assembler = Asm_new(tokenizer);
+
+    while(1) {
+        u64 err = assemble(assembler, tokenizer);
+        if (err == 0) {
+            break;
+        }
+        u8* msg = "Unexpected closing parenthesis";
+        assemble_print_err(tokenizer, msg, sizeof(msg) - 1, NULL, 0);
+    }
+    assemble_finish(assembler);
+
+    if (tokenizer->err != 0) {
+        return tokenizer->err;
     }
 
     u64 out = openat(AT_FDCWD, output_file, O_WRONLY|O_CREAT|O_TRUNC, 0777);
@@ -151,7 +161,7 @@ u64 main(u64 argc, u8* argv[]) {
     return 0;
 }
 
-u64 read_file(char* filename, u8** input, u8** input_end) {
+u64 read_file(char* filename, u8** input, u64* input_len) {
     u8* err = NULL;
     u64 err_len = 0;
 
@@ -182,7 +192,8 @@ u64 read_file(char* filename, u8** input, u8** input_end) {
         goto error_format;
     }
     close(file);
-    *input_end = *input + end;
+    //*input_end = *input + end;
+    *input_len = end;
 
     return 0;
 
@@ -199,7 +210,7 @@ error_format:
 
 
     *input = msg;
-    *input_end = (u8*)(err_len + file_len + 1);
+    *input_len = err_len + file_len + 1;
     return 1;
 }
 
